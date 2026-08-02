@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Train Status Tracker"
+description = "A clean, bulletproof train running-status tracker. Users enter a train number and departure date to see live delay information, current position, and station-by-station arrival/departure status. Data is fetched from the Paytm trains API via a backend proxy to avoid CORS restrictions."
+version = "1.0.0"
+id = "artifacts/train-tracker"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23962
+
+[services.development]
+run = "pnpm --filter @workspace/train-tracker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/train-tracker", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/train-tracker/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23962"
+BASE_PATH = "/"

@@ -5,13 +5,6 @@
  * Train status tracker API — proxies to Paytm trains data source
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface ErrorResponse {
-  error: string;
-}
 
 /**
  * Running status at a single station
@@ -66,53 +59,3 @@ export interface StationStatus {
   /** Journey day (1 = departure day) */
   day: number;
 }
-
-/**
- * Full train running status
- */
-export interface TrainStatusResponse {
-  train_number: string;
-  train_name: string;
-  /** Date in YYYYMMDD format */
-  departure_date: string;
-  source_station_code: string;
-  source_station_name: string;
-  destination_station_code: string;
-  destination_station_name: string;
-  /**
-     * Code of the station where the train currently is / last departed
-     * @nullable
-     */
-  current_station_code?: string | null;
-  /** @nullable */
-  current_station_name?: string | null;
-  /**
-     * Current delay in minutes
-     * @nullable
-     */
-  current_delay_minutes?: number | null;
-  /**
-     * Human-readable status summary from data provider
-     * @nullable
-     */
-  status_message?: string | null;
-  /**
-     * ISO 8601 timestamp of when the status was last refreshed
-     * @nullable
-     */
-  last_updated?: string | null;
-  stations: StationStatus[];
-}
-
-export type GetTrainStatusParams = {
-/**
- * Train number (e.g. 22943)
- */
-train_number: string;
-/**
- * Departure date in YYYYMMDD format (e.g. 20260801)
- * @pattern ^\d{8}$
- */
-departure_date: string;
-};
-
