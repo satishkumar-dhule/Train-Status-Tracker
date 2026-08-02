@@ -18,6 +18,26 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * Returns up to 10 trains matching a partial train number or name query. Uses a curated local dataset — no external dependency.
+ * @summary Autocomplete train search
+ */
+export const searchTrainsQueryQMin = 2;
+
+
+
+export const SearchTrainsQueryParams = zod.object({
+  "q": zod.coerce.string().min(searchTrainsQueryQMin).describe('Partial train number (e.g. \"229\") or name fragment (e.g. \"Rajdhani\")')
+})
+
+export const SearchTrainsResponse = zod.object({
+  "results": zod.array(zod.object({
+  "number": zod.string().describe('Train number (e.g. \"22943\")'),
+  "name": zod.string().describe('Train name (e.g. \"Indore Intercity SF Express\")')
+}).describe('A single train suggestion from autocomplete'))
+})
+
+
+/**
  * Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to Paytm trains data.
  * @summary Get train running status
  */

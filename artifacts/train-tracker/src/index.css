@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -41,6 +41,8 @@
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
 
+  --color-station-muted: hsl(var(--station-muted));
+
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
 
@@ -50,61 +52,127 @@
   --radius-xl: calc(var(--radius) + 4px);
   
   --animate-pulse-fast: pulse-fast 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-train-move: train-move 8s linear infinite;
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes pulse-fast {
   0%, 100% {
     opacity: 1;
+    transform: scale(1);
   }
   50% {
-    opacity: .3;
+    opacity: .4;
+    transform: scale(0.85);
   }
 }
 
-/* Hardcoded to a dark control-room theme */
+@keyframes train-move {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Indian Railways inspired palette — blue livery, saffron accents, warm off-white platforms */
 :root {
-  --background: 0 0% 4%;
-  --foreground: 0 0% 95%;
+  --background: 40 20% 97%;
+  --foreground: 222 30% 14%;
   
-  --card: 0 0% 7%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 0 0% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 30% 14%;
+  --card-border: 214 20% 88%;
   
-  --popover: 0 0% 7%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 0 0% 15%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 30% 14%;
+  --popover-border: 214 20% 88%;
   
-  /* Signal Green */
-  --primary: 135 100% 40%;
-  --primary-foreground: 0 0% 0%;
+  /* Indian Railways blue */
+  --primary: 214 80% 28%;
+  --primary-foreground: 40 30% 98%;
   
-  --secondary: 0 0% 15%;
-  --secondary-foreground: 0 0% 95%;
+  --secondary: 214 30% 94%;
+  --secondary-foreground: 214 80% 28%;
   
-  --muted: 0 0% 12%;
-  --muted-foreground: 0 0% 60%;
+  --muted: 40 15% 92%;
+  --muted-foreground: 214 15% 45%;
   
-  /* Amber */
-  --accent: 35 100% 50%;
-  --accent-foreground: 0 0% 0%;
+  /* Saffron-orange accent / CTA */
+  --accent: 28 95% 52%;
+  --accent-foreground: 0 0% 100%;
   
-  --destructive: 0 100% 40%;
-  --destructive-foreground: 0 0% 95%;
+  --destructive: 4 75% 48%;
+  --destructive-foreground: 0 0% 100%;
 
-  --warning: 35 100% 50%;
-  --warning-foreground: 0 0% 0%;
+  --warning: 38 95% 52%;
+  --warning-foreground: 26 40% 14%;
 
-  --success: 135 100% 40%;
-  --success-foreground: 0 0% 0%;
+  --success: 145 60% 38%;
+  --success-foreground: 0 0% 100%;
+
+  --station-muted: 214 15% 55%;
   
-  --border: 0 0% 15%;
-  --input: 0 0% 15%;
-  --ring: 135 100% 40%;
+  --border: 214 20% 88%;
+  --input: 214 20% 88%;
+  --ring: 214 80% 28%;
   
-  --app-font-sans: 'Inter', sans-serif;
+  --app-font-sans: 'Poppins', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
   
-  --radius: 0.25rem;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: 222 25% 10%;
+  --foreground: 40 20% 94%;
+
+  --card: 222 25% 14%;
+  --card-foreground: 40 20% 94%;
+  --card-border: 222 20% 22%;
+
+  --popover: 222 25% 14%;
+  --popover-foreground: 40 20% 94%;
+  --popover-border: 222 20% 22%;
+
+  --primary: 214 70% 55%;
+  --primary-foreground: 222 30% 10%;
+
+  --secondary: 222 20% 20%;
+  --secondary-foreground: 40 20% 94%;
+
+  --muted: 222 20% 18%;
+  --muted-foreground: 214 15% 65%;
+
+  --accent: 28 95% 56%;
+  --accent-foreground: 222 30% 10%;
+
+  --destructive: 4 70% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --warning: 38 90% 58%;
+  --warning-foreground: 26 40% 12%;
+
+  --success: 145 55% 45%;
+  --success-foreground: 0 0% 100%;
+
+  --station-muted: 214 15% 60%;
+
+  --border: 222 20% 22%;
+  --input: 222 20% 22%;
+  --ring: 214 70% 55%;
 }
 
 @layer base {
@@ -113,5 +181,20 @@
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .bg-grain {
+    position: relative;
+  }
+  .bg-grain::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    z-index: 1;
   }
 }

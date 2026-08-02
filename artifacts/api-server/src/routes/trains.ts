@@ -3,6 +3,7 @@ import {
   GetTrainStatusQueryParams,
   GetTrainStatusResponse,
 } from "@workspace/api-zod";
+import { TRAINS } from "../lib/trains-data";
 
 const router: IRouter = Router();
 
@@ -184,9 +185,11 @@ router.get("/trains/status", async (req, res): Promise<void> => {
   const currentStationData = stations.find((st) => st.is_current);
   const currentDelay = currentStationData?.delay_minutes ?? null;
 
+  const knownTrain = TRAINS.find((t) => t.number === train_number);
+
   const response = GetTrainStatusResponse.parse({
     train_number: train_number,
-    train_name: `Train ${train_number}`,
+    train_name: knownTrain ? knownTrain.name : `Train ${train_number}`,
     departure_date: String(departure_date),
     source_station_code: firstStation?.station_code ?? "",
     source_station_name: firstStation?.station_name ?? "",

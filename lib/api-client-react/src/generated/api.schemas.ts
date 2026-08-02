@@ -9,6 +9,20 @@ export interface HealthStatus {
   status: string;
 }
 
+/**
+ * A single train suggestion from autocomplete
+ */
+export interface TrainSuggestion {
+  /** Train number (e.g. "22943") */
+  number: string;
+  /** Train name (e.g. "Indore Intercity SF Express") */
+  name: string;
+}
+
+export interface TrainSearchResults {
+  results: TrainSuggestion[];
+}
+
 export interface ErrorResponse {
   error: string;
 }
@@ -103,6 +117,14 @@ export interface TrainStatusResponse {
   last_updated?: string | null;
   stations: StationStatus[];
 }
+
+export type SearchTrainsParams = {
+/**
+ * Partial train number (e.g. "229") or name fragment (e.g. "Rajdhani")
+ * @minLength 2
+ */
+q: string;
+};
 
 export type GetTrainStatusParams = {
 /**

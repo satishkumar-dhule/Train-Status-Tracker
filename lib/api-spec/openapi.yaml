@@ -27,6 +27,34 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /trains/search:
+    get:
+      operationId: searchTrains
+      tags: [trains]
+      summary: Autocomplete train search
+      description: Returns up to 10 trains matching a partial train number or name query. Uses a curated local dataset — no external dependency.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Partial train number (e.g. "229") or name fragment (e.g. "Rajdhani")
+      responses:
+        "200":
+          description: List of matching trains
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainSearchResults"
+        "400":
+          description: Query too short
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /trains/status:
     get:
       operationId: getTrainStatus
@@ -82,6 +110,30 @@ components:
           type: string
       required:
         - status
+
+    TrainSuggestion:
+      type: object
+      description: A single train suggestion from autocomplete
+      properties:
+        number:
+          type: string
+          description: Train number (e.g. "22943")
+        name:
+          type: string
+          description: Train name (e.g. "Indore Intercity SF Express")
+      required:
+        - number
+        - name
+
+    TrainSearchResults:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrainSuggestion"
+      required:
+        - results
 
     ErrorResponse:
       type: object

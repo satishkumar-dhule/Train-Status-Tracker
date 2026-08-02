@@ -19,6 +19,8 @@ import type {
   ErrorResponse,
   GetTrainStatusParams,
   HealthStatus,
+  SearchTrainsParams,
+  TrainSearchResults,
   TrainStatusResponse
 } from './api.schemas';
 
@@ -115,6 +117,91 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHealthCheckQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSearchTrainsUrl = (params: SearchTrainsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/trains/search?${stringifiedParams}` : `/api/trains/search`
+}
+
+/**
+ * Returns up to 10 trains matching a partial train number or name query. Uses a curated local dataset — no external dependency.
+ * @summary Autocomplete train search
+ */
+export const searchTrains = async (params: SearchTrainsParams, options?: Parameters<typeof customFetch>[1]): Promise<TrainSearchResults> => {
+
+  return customFetch<TrainSearchResults>(getSearchTrainsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchTrainsQueryKey = (params?: SearchTrainsParams,) => {
+    return [
+    `/api/trains/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchTrainsQueryOptions = <TData = Awaited<ReturnType<typeof searchTrains>>, TError = ErrorType<ErrorResponse>>(params: SearchTrainsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchTrains>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchTrainsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchTrains>>> = ({ signal }) => searchTrains(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchTrains>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchTrainsQueryResult = NonNullable<Awaited<ReturnType<typeof searchTrains>>>
+export type SearchTrainsQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Autocomplete train search
+ */
+
+export function useSearchTrains<TData = Awaited<ReturnType<typeof searchTrains>>, TError = ErrorType<ErrorResponse>>(
+ params: SearchTrainsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchTrains>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchTrainsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
