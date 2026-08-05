@@ -18,7 +18,7 @@ describe("ViewToggle", () => {
     expect(timeline).toHaveAttribute("aria-pressed", "true");
     expect(track).toHaveAttribute("aria-pressed", "false");
     expect(timeline).toHaveTextContent("Timeline");
-    expect(track).toHaveTextContent("Live Track");
+    expect(track).toHaveTextContent("Live track");
   });
 
   it("calls onChange when an option is selected", async () => {

@@ -93,8 +93,8 @@ describe("StationTimeline", () => {
         <StationTimeline stations={stations} />
       </I18nProvider>
     );
-    expect(screen.getByText("20M LATE")).toBeInTheDocument();
-    expect(screen.getByText("ON TIME")).toBeInTheDocument();
+    expect(screen.getByText("20M late")).toBeInTheDocument();
+    expect(screen.getByText("On time")).toBeInTheDocument();
   });
 
   it("renders a day badge when day > 1 and plain day text otherwise", () => {
@@ -103,8 +103,8 @@ describe("StationTimeline", () => {
         <StationTimeline stations={stations} />
       </I18nProvider>
     );
-    expect(screen.getByText("DAY 2")).toBeInTheDocument();
-    expect(screen.getAllByText("DAY 1")).toHaveLength(2);
+    expect(screen.getByText("Day 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Day 1")).toHaveLength(2);
   });
 
   it("shows the ACT label with the actual time when it differs from scheduled", () => {

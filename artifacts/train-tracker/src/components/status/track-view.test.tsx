@@ -172,7 +172,7 @@ describe("TrackView", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent("Vadodara Junction");
-    expect(tooltip).toHaveTextContent("20M LATE");
+    expect(tooltip).toHaveTextContent("20M late");
     expect(tooltip).toHaveTextContent("PF 3");
     expect(tooltip).toHaveTextContent("100KM");
   });

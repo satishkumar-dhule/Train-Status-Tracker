@@ -138,9 +138,25 @@ export default function Home() {
   }, [searched, userPickedDate, runs, apiParams.departure_date, setDepartureDate]);
 
   const dates = useMemo(() => {
-    const runDates =
-      runs && runs.length > 0 ? runs.map(fromApiDate) : null;
-    const windowDates = runDates ?? getDateWindow(3, 3);
+    let windowDates: string[]; // ISO date strings
+
+    if (runs && runs.length > 0) {
+      // Determine the "centre" run: the user-selected date, or the default.
+      const activeIdx = runs.findIndex((r) => r === apiParams.departure_date);
+      const defaultRun = pickDefaultRunDate(runs);
+      const defaultIdx = runs.findIndex((r) => r === defaultRun);
+      const centerIdx =
+        activeIdx >= 0 ? activeIdx : defaultIdx >= 0 ? defaultIdx : 0;
+
+      // Show last 2 runs + current + next 1 run (up to 4 tabs).
+      const start = Math.max(0, centerIdx - 2);
+      const end = Math.min(runs.length - 1, centerIdx + 1);
+      windowDates = runs.slice(start, end + 1).map(fromApiDate);
+    } else {
+      // Fallback: 2 past days + today + 1 future day.
+      windowDates = getDateWindow(2, 1);
+    }
+
     const todayApi = toApiDate(getUpcomingDates(1)[0]);
     const tomorrowApi = toApiDate(getUpcomingDates(2)[1]);
     const yesterdayApi = toApiDate(getDateWindow(1, 0)[0]);
@@ -159,7 +175,7 @@ export default function Home() {
                 : formatShortDate(iso),
       };
     });
-  }, [t, runs]);
+  }, [t, runs, apiParams.departure_date]);
 
   const { data, isLoading, isFetching, isError, isPlaceholderData, messageKey } =
     useTrainStatus(searched ? apiParams : null);

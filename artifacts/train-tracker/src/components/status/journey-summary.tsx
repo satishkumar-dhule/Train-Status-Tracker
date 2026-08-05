@@ -53,11 +53,14 @@ export function JourneySummary({
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="journey-summary">
-      <Stat
-        label={t("label.currentStation")}
-        value={currentStation?.station_name ?? "--"}
-        sub={currentStation?.station_code ? `[${currentStation.station_code}]` : undefined}
-      />
+      {/* Current station spans full width on mobile for readability */}
+      <div className="col-span-2 md:col-span-1">
+        <Stat
+          label={t("label.currentStation")}
+          value={currentStation?.station_name ?? "--"}
+          sub={currentStation?.station_code ? `[${currentStation.station_code}]` : undefined}
+        />
+      </div>
       <Stat label={t("meta.kilometers", { n: "" })} value={distanceValue} />
       <Stat
         label={t("label.duration")}

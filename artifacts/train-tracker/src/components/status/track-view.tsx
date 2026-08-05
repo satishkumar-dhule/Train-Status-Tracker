@@ -123,7 +123,7 @@ export function TrackView({
         data-testid="track-view"
       >
         <div className="flex items-center justify-between gap-3 mb-5">
-          <div className="flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-widest text-foreground min-w-0">
+          <div className="flex items-center gap-2 font-mono text-sm font-bold uppercase tracking-widest text-foreground min-w-0">
             <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
             <span className="truncate">{first.station_code}</span>
             <span className="text-border shrink-0">→</span>
@@ -146,10 +146,10 @@ export function TrackView({
             data-testid="track-current-strip"
           >
             <span className="w-2 h-2 rounded-full bg-brand animate-pulse-fast shrink-0" />
-            <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-brand truncate">
+            <span className="font-mono text-sm font-bold uppercase tracking-wider text-brand truncate">
               {currentStation.station_name}
             </span>
-            <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground shrink-0">
+            <span className="font-mono text-sm uppercase tracking-widest text-muted-foreground shrink-0">
               [{currentStation.station_code}]
             </span>
             <span className="ms-auto shrink-0">
@@ -336,7 +336,7 @@ export function TrackView({
                         [{station.station_code}]
                       </span>
                     </div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-widest">
+                    <div className="text-sm text-muted-foreground uppercase tracking-widest">
                       {station.scheduled_arrival ??
                         station.scheduled_departure ??
                         "--:--"}
@@ -349,7 +349,7 @@ export function TrackView({
                     </div>
                     {(station.platform != null ||
                       station.distance_from_source != null) && (
-                      <div className="text-xs text-muted-foreground uppercase tracking-widest flex gap-x-2 flex-wrap">
+                      <div className="text-sm text-muted-foreground uppercase tracking-widest flex gap-x-2 flex-wrap">
                         {station.platform != null &&
                           station.platform !== "" &&
                           t("meta.platform", { n: station.platform })}

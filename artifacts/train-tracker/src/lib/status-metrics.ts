@@ -37,7 +37,7 @@ export function computeProgressPercent(
     return null;
   }
   const percent = (currentDistance / totalDistance) * 100;
-  return Math.min(100, Math.max(0, percent));
+  return Math.round(Math.min(100, Math.max(0, percent)));
 }
 
 /**

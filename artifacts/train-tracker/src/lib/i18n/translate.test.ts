@@ -14,7 +14,7 @@ describe("translate", () => {
 
   it("interpolates numeric params", () => {
     expect(translate(DICTIONARY, "en", "status.lateMinutes", { n: 42 })).toBe(
-      "42M LATE",
+      "42M late",
     );
   });
 
@@ -26,7 +26,7 @@ describe("translate", () => {
 
   it("leaves unknown params untouched", () => {
     expect(translate(DICTIONARY, "en", "status.lateMinutes", { x: 1 })).toBe(
-      "{n}M LATE",
+      "{n}M late",
     );
   });
 

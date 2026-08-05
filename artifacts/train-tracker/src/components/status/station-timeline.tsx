@@ -43,30 +43,31 @@ export function StationTimeline({ stations }: { stations: StationStatus[] }) {
           <div
             key={station.station_code}
             className={cn(
-              "flex gap-4 md:gap-6 min-h-[4.5rem] relative group",
+              "flex gap-3 min-h-[4.5rem] relative group",
+              isCurrent && "bg-primary/5 -mx-2 px-2 rounded-xl",
               isPassed && !isCurrent ? "opacity-60 hover:opacity-100 transition-opacity" : ""
             )}
             data-testid={`row-station-${station.station_code}`}
           >
-            {/* Time Column */}
-            <div className="w-14 md:w-16 shrink-0 text-end pt-0.5 flex flex-col gap-1">
+            {/* Time Column — fixed width, right-aligned */}
+            <div className="w-12 shrink-0 text-end pt-1 flex flex-col gap-0.5">
               <span
                 className={cn(
-                  "text-xs md:text-sm font-bold leading-none tracking-wider",
-                  isPassed ? "text-muted-foreground" : "text-foreground"
+                  "text-xs font-bold leading-none tracking-wider tabular-nums",
+                  isCurrent ? "text-primary" : isPassed ? "text-muted-foreground" : "text-foreground"
                 )}
               >
                 {timeSch}
               </span>
               {timeChanged && (
-                <span className="text-xs md:text-sm text-warning font-bold leading-none tracking-wider">
-                  {timeAct}
-                </span>
-              )}
-              {timeChanged && (
-                <span className="text-xs text-muted-foreground uppercase tracking-widest leading-none">
-                  ACT
-                </span>
+                <>
+                  <span className="text-xs text-warning font-bold leading-none tracking-wider tabular-nums">
+                    {timeAct}
+                  </span>
+                  <span className="text-[9px] text-muted-foreground uppercase tracking-widest leading-none">
+                    ACT
+                  </span>
+                </>
               )}
             </div>
 
@@ -80,53 +81,59 @@ export function StationTimeline({ stations }: { stations: StationStatus[] }) {
                   )}
                 />
               )}
-              <div className={cn("w-3 h-3 rounded-full z-10 relative mt-1 shrink-0", bgNode)} />
+              <div className={cn("w-3 h-3 rounded-full z-10 relative mt-1.5 shrink-0", bgNode)} />
             </div>
 
             {/* Details Column */}
-            <div className="flex-1 min-w-0 pb-5 group-last:pb-2">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 sm:gap-4">
+            <div className="flex-1 min-w-0 pb-4 group-last:pb-2 pt-0.5">
+              {/* Station name + delay on same row */}
+              <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div
                     className={cn(
-                      "text-sm md:text-base font-bold uppercase tracking-wider flex items-center gap-2 flex-wrap",
+                      "text-sm font-bold uppercase tracking-wider leading-tight",
                       textColor
                     )}
                   >
                     {station.station_name}
-                    <span className="opacity-50 font-normal text-xs md:text-sm">
-                      [{station.station_code}]
-                    </span>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-2 flex gap-x-4 gap-y-1 flex-wrap uppercase tracking-widest font-semibold">
-                    <span className="flex items-center gap-1">
-                      <Map className="w-3 h-3" /> {t("meta.platform", { n: station.platform || "-" })}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Route className="w-3 h-3" />{" "}
-                      {t("meta.kilometers", { n: station.distance_from_source ?? "-" })}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Timer className="w-3 h-3" />{" "}
-                      {t("meta.halt", { n: station.halt_minutes ? station.halt_minutes : "-" })}
-                    </span>
-                    <span className={cn("flex items-center gap-1", station.day > 1 && "text-warning")}>
-                      <CalendarDays className="w-3 h-3" />
-                      {station.day > 1 ? (
-                        <Badge
-                          variant="outline"
-                          className="text-xs h-5 px-2 border-warning text-warning bg-warning/5 tracking-widest"
-                        >
-                          {t("meta.day", { n: station.day })}
-                        </Badge>
-                      ) : (
-                        t("meta.day", { n: station.day })
-                      )}
-                    </span>
+                  <div className="text-[10px] text-muted-foreground font-semibold tracking-widest mt-0.5">
+                    {station.station_code}
                   </div>
                 </div>
+                <div className="shrink-0 mt-0.5">
+                  <DelayBadge delayMinutes={delayMinutes} />
+                </div>
+              </div>
 
-                <DelayBadge delayMinutes={delayMinutes} />
+              {/* Metadata row — mobile shows platform + distance only; rest on sm+ */}
+              <div className="mt-1.5 flex gap-x-3 gap-y-0.5 flex-wrap text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
+                <span className="flex items-center gap-1">
+                  <Map className="w-3 h-3 shrink-0" />
+                  {t("meta.platform", { n: station.platform || "-" })}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Route className="w-3 h-3 shrink-0" />
+                  {t("meta.kilometers", { n: station.distance_from_source ?? "-" })}
+                </span>
+                {/* Halt and day — hidden on mobile, visible from sm */}
+                {station.halt_minutes != null && station.halt_minutes > 0 && (
+                  <span className="hidden sm:flex items-center gap-1">
+                    <Timer className="w-3 h-3 shrink-0" />
+                    {t("meta.halt", { n: station.halt_minutes })}
+                  </span>
+                )}
+                {station.day > 1 && (
+                  <span className="flex items-center gap-1 text-warning">
+                    <CalendarDays className="w-3 h-3 shrink-0" />
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] h-4 px-1.5 border-warning text-warning bg-warning/5 tracking-widest"
+                    >
+                      {t("meta.day", { n: station.day })}
+                    </Badge>
+                  </span>
+                )}
               </div>
             </div>
           </div>

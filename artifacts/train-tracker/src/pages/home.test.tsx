@@ -139,6 +139,39 @@ function mockSuccess() {
   );
 }
 
+function mockPlaceholder() {
+  mocks.useTrainStatus.mockImplementation(
+    (params: { train_number: string; departure_date: string } | null) => {
+      if (!params) {
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+          isNotFound: false,
+          isProviderError: false,
+          isNetworkError: false,
+          messageKey: null,
+        };
+      }
+      return {
+        data: makeResponse({
+          train_number: params.train_number,
+          departure_date: params.departure_date,
+        }),
+        isLoading: false,
+        isFetching: false,
+        isPlaceholderData: true,
+        isError: false,
+        isNotFound: false,
+        isProviderError: false,
+        isNetworkError: false,
+        messageKey: null,
+      };
+    },
+  );
+}
+
 function mockError(
   key: "error.trainNotFound" | "error.providerUnreachable" | "error.fallback",
 ) {
@@ -272,6 +305,20 @@ describe("Home", () => {
     expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
       train_number: "22943",
     });
+  });
+
+  it("shows a refreshing hint instead of a stale timestamp for placeholder data", async () => {
+    const user = userEvent.setup();
+    mockPlaceholder();
+    renderHome();
+
+    await searchFor(user, "22943");
+
+    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
+      "22943",
+    );
+    expect(screen.getByText("Refreshing…")).toBeInTheDocument();
+    expect(screen.queryByText(/^Updated:/)).not.toBeInTheDocument();
   });
 
   it("renders the error panel with the i18n message and a retry button", async () => {
