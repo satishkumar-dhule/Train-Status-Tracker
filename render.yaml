@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: train-tracker-api
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm run typecheck && pnpm --filter @workspace/api-server run build
+    startCommand: node --enable-source-maps artifacts/api-server/dist/index.mjs
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: REDIS_MODE
+        value: auto
+      - key: REDIS_URL
+        fromService:
+          name: train-tracker-redis
+          type: keyvalue
+          property: connectionString
+
+  - type: web
+    name: train-tracker
+    runtime: static
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/train-tracker run build
+    staticPublishPath: artifacts/train-tracker/dist/public
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: train-tracker-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: keyvalue
+    name: train-tracker-redis
+    plan: free
+    ipAllowList: []

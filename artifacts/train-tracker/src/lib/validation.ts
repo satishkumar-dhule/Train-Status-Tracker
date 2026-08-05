@@ -1,20 +1,19 @@
-import type { TrainSuggestion } from "@workspace/api-client-react";
+import {
+  MIN_QUERY_LENGTH,
+  matchesTrainName,
+  matchesTrainNumber,
+  normalizeTrainNumber,
+  uniqueByNumber,
+} from "@workspace/trains-data";
+import type { TrainEntry } from "@workspace/trains-data";
 
-export const MIN_QUERY_LENGTH = 2;
 export const TRAIN_NUMBER_PATTERN = /^\d{5}$/;
 
-export type TrainValidationStatus = "idle" | "checking" | "valid" | "invalid";
+export type TrainValidationStatus = "idle" | "valid" | "invalid";
 
 export interface TrainValidationState {
   status: TrainValidationStatus;
   message?: string;
-}
-
-export type FetchState = "idle" | "fetching" | "error" | "success";
-
-/** " 22943 " -> "22943"; "raj" -> "RAJ" */
-export function normalizeTrainNumber(raw: string): string {
-  return raw.replace(/\s+/g, "").toUpperCase().trim();
 }
 
 /** Client-side format gate: exactly 5 digits. */
@@ -22,86 +21,93 @@ export function isValidTrainNumberFormat(value: string): boolean {
   return TRAIN_NUMBER_PATTERN.test(value);
 }
 
-/** Exact number comparison on normalized values. */
-export function matchesTrainNumber(
-  suggestionNumber: string,
-  normalizedInput: string,
-): boolean {
-  return normalizeTrainNumber(suggestionNumber) === normalizedInput;
-}
-
-function toLocalDateKey(date: Date): string {
-  const y = date.getFullYear().toString();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/** 'YYYY-MM-DD' must be a real calendar date and >= today (local). */
-export function isValidDepartureDate(dateISO: string, now?: Date): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return false;
-  const [y, m, d] = dateISO.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  if (
-    date.getFullYear() !== y ||
-    date.getMonth() !== m - 1 ||
-    date.getDate() !== d
-  ) {
-    return false;
-  }
-  const today = now ?? new Date();
-  return dateISO >= toLocalDateKey(today);
-}
-
-/** '2023-10-15' -> '20231015' */
-export function toApiDate(dateISO: string): string {
-  return dateISO.replace(/-/g, "");
+function isFullyNumeric(value: string): boolean {
+  return /^\d+$/.test(value);
 }
 
 /**
- * Core validation resolver (zero-trust state machine).
- * `valid` ONLY when the normalized input equals a server-returned
- * suggestion number (or a previously picked suggestion that still matches).
+ * Client-side validation resolver (zero-trust state machine).
+ * `valid` ONLY when the input resolves to a single concrete train — by exact
+ * number match, unique full-name match, or a previously picked suggestion.
  * Failure to verify is never treated as valid.
  */
-export function validateTrain(
+export function validateTrainQuery(
   query: string,
-  selected: TrainSuggestion | null,
-  results: TrainSuggestion[],
-  fetchState: FetchState,
+  selected: TrainEntry | null,
+  trains: TrainEntry[],
 ): TrainValidationState {
   const normalized = normalizeTrainNumber(query);
 
-  if (!normalized) {
+  if (!normalized || normalized.length < MIN_QUERY_LENGTH) {
     return { status: "idle" };
-  }
-
-  if (!isValidTrainNumberFormat(normalized)) {
-    return { status: "invalid", message: "hint.invalidFormat" };
   }
 
   if (selected && matchesTrainNumber(selected.number, normalized)) {
     return { status: "valid", message: "hint.valid" };
   }
 
-  if (fetchState === "fetching") {
-    return { status: "checking", message: "hint.validating" };
+  const candidates = uniqueByNumber(trains);
+
+  const numberMatches = candidates.filter((train) =>
+    matchesTrainNumber(train.number, normalized),
+  );
+  if (numberMatches.length === 1) {
+    return { status: "valid", message: "hint.valid" };
   }
 
-  if (fetchState === "error") {
-    return { status: "invalid", message: "hint.unknownTrain" };
+  const nameMatches = candidates.filter((train) =>
+    matchesTrainName(train.name, normalized),
+  );
+  if (nameMatches.length === 1) {
+    return { status: "valid", message: "hint.valid" };
   }
 
-  if (fetchState === "success") {
-    const exactMatches = results.filter((s) =>
-      matchesTrainNumber(s.number, normalized),
-    );
-    if (exactMatches.length === 1) {
-      return { status: "valid", message: "hint.valid" };
-    }
+  if (
+    candidates.some(
+      (train) =>
+        train.number.startsWith(normalized) ||
+        normalizeTrainNumber(train.name).includes(normalized),
+    )
+  ) {
+    return { status: "invalid", message: "hint.pickSuggestion" };
   }
 
-  return { status: "invalid", message: "hint.unknownTrain" };
+  if (isFullyNumeric(normalized) && !isValidTrainNumberFormat(normalized)) {
+    return { status: "invalid", message: "hint.invalidFormat" };
+  }
+
+  return { status: "invalid", message: "hint.noMatch" };
+}
+
+/**
+ * Single resolution used for auto-submit and recent-chip clicks: selected
+ * train first, then unique exact-number match, then unique full-name match.
+ */
+export function resolveTrain(
+  query: string,
+  selected: { number: string; name: string } | null,
+  trains: { number: string; name: string }[],
+): { number: string; name: string } | null {
+  const normalized = normalizeTrainNumber(query);
+  if (!normalized) return null;
+
+  if (selected && matchesTrainNumber(selected.number, normalized)) {
+    return selected;
+  }
+
+  const unique = uniqueByNumber(trains);
+
+  const numberMatches = unique.filter((train) =>
+    matchesTrainNumber(train.number, normalized),
+  );
+  if (numberMatches.length === 1) return numberMatches[0];
+
+  const nameMatches = unique.filter((train) =>
+    matchesTrainName(train.name, normalized),
+  );
+  if (nameMatches.length === 1) return nameMatches[0];
+
+  return null;
 }
 
 /** [{ text: "22", highlight: true }, { text: "943", highlight: false }] */
@@ -111,16 +117,28 @@ export function splitHighlight(
 ): Array<{ text: string; highlight: boolean }> {
   const q = normalizeTrainNumber(query);
   if (!q) return [{ text, highlight: false }];
-  const index = text.toUpperCase().indexOf(q);
+
+  const stripped = text.toUpperCase().replace(/\s+/g, "");
+  const index = stripped.indexOf(q);
   if (index === -1) return [{ text, highlight: false }];
-  const parts: Array<{ text: string; highlight: boolean }> = [];
-  if (index > 0) parts.push({ text: text.slice(0, index), highlight: false });
-  parts.push({
-    text: text.slice(index, index + q.length),
-    highlight: true,
-  });
-  if (index + q.length < text.length) {
-    parts.push({ text: text.slice(index + q.length), highlight: false });
+
+  // Map the match index in the space-stripped string back to the raw text.
+  let start = 0;
+  let skipped = 0;
+  while (skipped < index) {
+    if (!/\s/.test(text[start])) skipped++;
+    start++;
   }
+  let end = start;
+  let matched = 0;
+  while (matched < q.length) {
+    if (!/\s/.test(text[end])) matched++;
+    end++;
+  }
+
+  const parts: Array<{ text: string; highlight: boolean }> = [];
+  if (start > 0) parts.push({ text: text.slice(0, start), highlight: false });
+  parts.push({ text: text.slice(start, end), highlight: true });
+  if (end < text.length) parts.push({ text: text.slice(end), highlight: false });
   return parts;
 }

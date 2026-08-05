@@ -1,3 +1,109 @@
+import {
+  MIN_QUERY_LENGTH,
+  normalizeTrainNumber,
+  uniqueByNumber,
+} from "./query";
+
+/**
+ * Duck-typed (fuzzy) matching for autocomplete. A train matches when its
+ * number is a prefix of the query, its (space-stripped) name contains the
+ * query, every query token appears in some name word, or the query is a
+ * character subsequence of the name — ranked from strongest to weakest.
+ */
+
+type Score = {
+  readonly match: boolean;
+  readonly rank: number;
+  readonly tiebreak: number;
+};
+
+function isFullyNumeric(query: string): boolean {
+  return /^\d+$/.test(query);
+}
+
+/** Space-separated words of a normalized name. */
+function wordsOf(name: string): string[] {
+  return name.split(/\s+/).filter(Boolean);
+}
+
+/** True when `sub` appears as a character subsequence of `str`. */
+function isSubsequence(sub: string, str: string): boolean {
+  if (sub.length === 0) return true;
+  let j = 0;
+  for (let i = 0; i < str.length && j < sub.length; i++) {
+    if (str[i] === sub[j]) j++;
+  }
+  return j === sub.length;
+}
+
+/**
+ * Rank a single train against a normalized query. Returns a non-null score
+ * only when the train "duck-types" the query (see module docs). Lower rank
+ * values win; `tiebreak` keeps deterministic ordering for equal ranks.
+ */
+export function scoreTrain(
+  train: { number: string; name: string },
+  normalizedQuery: string,
+): Score | null {
+  const number = normalizeTrainNumber(train.number);
+  const name = normalizeTrainNumber(train.name);
+  const tokens = wordsOf(normalizedQuery);
+  const nameWords = wordsOf(name);
+
+  if (isFullyNumeric(normalizedQuery)) {
+    if (number.startsWith(normalizedQuery)) {
+      return { match: true, rank: 0, tiebreak: number.length };
+    }
+    if (number.includes(normalizedQuery)) {
+      return {
+        match: true,
+        rank: 1,
+        tiebreak: number.indexOf(normalizedQuery),
+      };
+    }
+    return null;
+  }
+
+  if (tokens.length === 1) {
+    const token = tokens[0];
+    if (name.startsWith(token)) {
+      return { match: true, rank: 0, tiebreak: name.length };
+    }
+    if (name.includes(token)) {
+      return { match: true, rank: 1, tiebreak: name.indexOf(token) };
+    }
+    if (nameWords.some((word) => word.startsWith(token))) {
+      return { match: true, rank: 2, tiebreak: name.length };
+    }
+    if (isSubsequence(token, name)) {
+      return { match: true, rank: 3, tiebreak: name.length };
+    }
+    if (number.startsWith(token)) {
+      return { match: true, rank: 4, tiebreak: number.length };
+    }
+    if (number.includes(token)) {
+      return { match: true, rank: 5, tiebreak: number.indexOf(token) };
+    }
+    return null;
+  }
+
+  // Multi-word queries: the concatenated query must read through the name.
+  const joined = name.includes(normalizedQuery);
+  const allTokens = tokens.every((token) =>
+    nameWords.some((word) => word.includes(token)),
+  );
+  if (joined) {
+    return { match: true, rank: 0, tiebreak: name.length };
+  }
+  if (allTokens) {
+    return { match: true, rank: 1, tiebreak: name.length };
+  }
+  if (isSubsequence(normalizedQuery, name)) {
+    return { match: true, rank: 2, tiebreak: name.length };
+  }
+  return null;
+}
+
 /**
  * Curated static list of Indian Railways trains.
  * Source: Indian Railways official timetable (IRCTC / NTES public data).
@@ -16,7 +122,6 @@ export const TRAINS: TrainEntry[] = [
   { number: "12306", name: "New Delhi Rajdhani Express" },
   { number: "12309", name: "Rajendra Nagar Rajdhani Express" },
   { number: "12310", name: "New Delhi Rajdhani Express" },
-  { number: "12311", name: "Kalka Mail" },
   { number: "12313", name: "Sealdah Rajdhani Express" },
   { number: "12314", name: "New Delhi Rajdhani Express" },
   { number: "12423", name: "Dibrugarh Rajdhani Express" },
@@ -67,7 +172,6 @@ export const TRAINS: TrainEntry[] = [
   { number: "22436", name: "Varanasi Vande Bharat Express" },
   { number: "22437", name: "New Delhi Vande Bharat Express" },
   { number: "22438", name: "Mata Vaishno Devi Katra Vande Bharat" },
-  { number: "20901", name: "Mumbai Central Vande Bharat" },
   { number: "22549", name: "Secunderabad Vande Bharat Express" },
   { number: "22550", name: "Visakhapatnam Vande Bharat Express" },
   { number: "20613", name: "Howrah Vande Bharat Express" },
@@ -397,25 +501,35 @@ export const TRAINS: TrainEntry[] = [
 ];
 
 /**
- * Search trains by number prefix or name substring (case-insensitive, max 10 results).
+ * Search trains by number prefix or name using duck-typed (fuzzy) matching,
+ * ranked best-first (max `limit` results). Multi-word queries like
+ * "mumbai rajdhani" match "Mumbai Rajdhani Express"; a query whose characters
+ * form a subsequence of the name matches too, so typos still surface trains.
+ *
+ * Pass a `trains` dataset to search over fetched data; defaults to the
+ * bundled static `TRAINS` list.
  */
-export function searchTrains(query: string, limit = 10): TrainEntry[] {
-  const q = query.trim().toLowerCase();
-  if (!q || q.length < 2) return [];
+export function searchTrains(
+  query: string,
+  limit = 10,
+  trains: TrainEntry[] = TRAINS,
+): TrainEntry[] {
+  const q = normalizeTrainNumber(query);
+  if (!q || q.length < MIN_QUERY_LENGTH) return [];
 
-  const results: TrainEntry[] = [];
-  const seen = new Set<string>();
-
-  for (const t of TRAINS) {
-    if (seen.has(t.number)) continue;
-    const matchesNumber = t.number.startsWith(q);
-    const matchesName = t.name.toLowerCase().includes(q);
-    if (matchesNumber || matchesName) {
-      results.push(t);
-      seen.add(t.number);
-      if (results.length >= limit) break;
-    }
+  const scored: Array<{ train: TrainEntry; score: Score }> = [];
+  for (const train of uniqueByNumber(trains)) {
+    const score = scoreTrain(train, q);
+    if (score && score.match) scored.push({ train, score });
   }
 
-  return results;
+  scored.sort((a, b) => {
+    if (a.score.rank !== b.score.rank) return a.score.rank - b.score.rank;
+    if (a.score.tiebreak !== b.score.tiebreak) {
+      return a.score.tiebreak - b.score.tiebreak;
+    }
+    return a.train.number.localeCompare(b.train.number);
+  });
+
+  return scored.slice(0, limit).map((entry) => entry.train);
 }

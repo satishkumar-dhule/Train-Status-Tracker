@@ -3,8 +3,6 @@
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -41,7 +39,10 @@
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
 
-  --color-station-muted: hsl(var(--station-muted));
+  --color-brand: hsl(var(--brand));
+  --color-brand-strong: hsl(var(--brand-strong));
+  --color-brand-soft: hsl(var(--brand-soft));
+  --color-brand-foreground: hsl(var(--brand-foreground));
 
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
@@ -52,8 +53,8 @@
   --radius-xl: calc(var(--radius) + 4px);
   
   --animate-pulse-fast: pulse-fast 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  --animate-train-move: train-move 8s linear infinite;
-  --animate-fade-up: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  --animate-track-flow: track-flow 1.1s linear infinite;
 }
 
 @keyframes pulse-fast {
@@ -87,92 +88,66 @@
   }
 }
 
-/* Indian Railways inspired palette — blue livery, saffron accents, warm off-white platforms */
-:root {
-  --background: 40 20% 97%;
-  --foreground: 222 30% 14%;
-  
-  --card: 0 0% 100%;
-  --card-foreground: 222 30% 14%;
-  --card-border: 214 20% 88%;
-  
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 30% 14%;
-  --popover-border: 214 20% 88%;
-  
-  /* Indian Railways blue */
-  --primary: 214 80% 28%;
-  --primary-foreground: 40 30% 98%;
-  
-  --secondary: 214 30% 94%;
-  --secondary-foreground: 214 80% 28%;
-  
-  --muted: 40 15% 92%;
-  --muted-foreground: 214 15% 45%;
-  
-  /* Saffron-orange accent / CTA */
-  --accent: 28 95% 52%;
-  --accent-foreground: 0 0% 100%;
-  
-  --destructive: 4 75% 48%;
-  --destructive-foreground: 0 0% 100%;
-
-  --warning: 38 95% 52%;
-  --warning-foreground: 26 40% 14%;
-
-  --success: 145 60% 38%;
-  --success-foreground: 0 0% 100%;
-
-  --station-muted: 214 15% 55%;
-  
-  --border: 214 20% 88%;
-  --input: 214 20% 88%;
-  --ring: 214 80% 28%;
-  
-  --app-font-sans: 'Poppins', sans-serif;
-  --app-font-mono: 'JetBrains Mono', monospace;
-  
-  --radius: 0.75rem;
+@keyframes track-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -24;
+  }
 }
 
-.dark {
-  --background: 222 25% 10%;
-  --foreground: 40 20% 94%;
+/* Hue-channel values in :root are consumed by hsl() in @theme inline. `brand` is the canonical CTA hue; `primary`/`ring` are legacy aliases. */
+:root {
+  --background: 0 0% 98%;
+  --foreground: 222 25% 18%;
 
-  --card: 222 25% 14%;
-  --card-foreground: 40 20% 94%;
-  --card-border: 222 20% 22%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 25% 18%;
+  --card-border: 216 20% 90%;
 
-  --popover: 222 25% 14%;
-  --popover-foreground: 40 20% 94%;
-  --popover-border: 222 20% 22%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 25% 18%;
+  --popover-border: 216 20% 90%;
 
-  --primary: 214 70% 55%;
-  --primary-foreground: 222 30% 10%;
+  /* canonical IRCTC red-orange CTA — L45 keeps white-on-brand ≥4.5:1 */
+  --brand: 14 80% 45%;
+  --brand-strong: 14 70% 38%;
+  --brand-soft: 14 85% 95%;
+  --brand-foreground: 0 0% 100%;
 
-  --secondary: 222 20% 20%;
-  --secondary-foreground: 40 20% 94%;
+  /* legacy aliases for the brand hue — new code should use `brand` */
+  --primary: 14 80% 45%;
+  --primary-foreground: 0 0% 100%;
 
-  --muted: 222 20% 18%;
-  --muted-foreground: 214 15% 65%;
+  --secondary: 216 20% 94%;
+  --secondary-foreground: 222 25% 25%;
 
-  --accent: 28 95% 56%;
-  --accent-foreground: 222 30% 10%;
+  --muted: 216 20% 95%;
+  --muted-foreground: 218 15% 42%;
 
-  --destructive: 4 70% 55%;
+  /* Blue accent / links */
+  --accent: 214 85% 40%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 4 75% 44%;
   --destructive-foreground: 0 0% 100%;
 
-  --warning: 38 90% 58%;
-  --warning-foreground: 26 40% 12%;
+  --warning: 38 90% 33%;
+  --warning-foreground: 0 0% 100%;
 
-  --success: 145 55% 45%;
+  --success: 145 60% 33%;
   --success-foreground: 0 0% 100%;
 
-  --station-muted: 214 15% 60%;
+  --border: 216 20% 90%;
+  --input: 216 20% 88%;
+  /* legacy alias for the brand hue — new code should use `brand` */
+  --ring: 14 80% 45%;
 
-  --border: 222 20% 22%;
-  --input: 222 20% 22%;
-  --ring: 214 70% 55%;
+  --app-font-sans: 'Poppins', sans-serif;
+  --app-font-mono: 'JetBrains Mono', monospace;
+
+  --radius: 0.5rem;
 }
 
 @layer base {
@@ -184,17 +159,108 @@
   }
 }
 
-@layer utilities {
-  .bg-grain {
-    position: relative;
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-pulse-fast,
+  .animate-track-flow {
+    animation: none;
   }
-  .bg-grain::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    z-index: 1;
-  }
+}
+
+/* ---- Display modes -------------------------------------------------------
+   Applied via `mode-*` classes on <html>. Because @theme inline emits
+   `hsl(var(--…))` into every utility, overriding the vars here cascades
+   through the whole app with no component changes. */
+html.mode-big-fonts {
+  font-size: 1.125rem;
+}
+
+html.mode-high-contrast {
+  --background: 0 0% 95%;
+  --foreground: 222 30% 9%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 30% 9%;
+  --card-border: 218 20% 58%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 30% 9%;
+  --popover-border: 218 20% 58%;
+
+  --brand: 14 78% 42%;
+  --brand-strong: 14 70% 34%;
+  --brand-soft: 14 85% 90%;
+
+  --primary: 14 78% 42%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 216 15% 91%;
+  --secondary-foreground: 222 25% 16%;
+
+  --muted: 216 15% 92%;
+  --muted-foreground: 218 15% 28%;
+
+  --accent: 214 80% 34%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 4 70% 40%;
+  --destructive-foreground: 0 0% 100%;
+
+  --warning: 38 88% 30%;
+  --warning-foreground: 0 0% 100%;
+
+  --success: 145 55% 27%;
+  --success-foreground: 0 0% 100%;
+
+  --border: 218 20% 58%;
+  --input: 218 22% 52%;
+  --ring: 14 78% 42%;
+}
+
+html.mode-bw {
+  --background: 0 0% 98%;
+  --foreground: 0 0% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 12%;
+  --card-border: 0 0% 84%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 12%;
+  --popover-border: 0 0% 84%;
+
+  --brand: 0 0% 32%;
+  --brand-strong: 0 0% 24%;
+  --brand-soft: 0 0% 91%;
+  --brand-foreground: 0 0% 100%;
+
+  --primary: 0 0% 32%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 0 0% 93%;
+  --secondary-foreground: 0 0% 24%;
+
+  --muted: 0 0% 94%;
+  --muted-foreground: 0 0% 40%;
+
+  --accent: 0 0% 42%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 0% 26%;
+  --destructive-foreground: 0 0% 100%;
+
+  --warning: 0 0% 45%;
+  --warning-foreground: 0 0% 100%;
+
+  --success: 0 0% 30%;
+  --success-foreground: 0 0% 100%;
+
+  --border: 0 0% 84%;
+  --input: 0 0% 78%;
+  --ring: 0 0% 32%;
+}
+
+/* The WAP-7 livery keeps hardcoded paint colors; desaturate it in B&W mode. */
+html.mode-bw .train-illustration {
+  filter: grayscale(1);
 }

@@ -8,8 +8,13 @@
 
 export type SearchTrainsParams = {
 /**
- * Partial train number (e.g. "229") or name fragment (e.g. "Rajdhani")
- * @minLength 2
+ * Search query (e.g. 229, rajdhani, mumbai rajdhani)
  */
 q: string;
+/**
+ * Maximum number of results (default 10)
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };

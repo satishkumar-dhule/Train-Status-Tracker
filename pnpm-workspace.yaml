@@ -42,6 +42,14 @@ packages:
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.21
+  '@testing-library/dom': ^10.4.0
+  '@testing-library/jest-dom': ^6.6.3
+  '@testing-library/react': ^16.3.0
+  '@testing-library/user-event': ^14.6.1
+  '@vitest/coverage-v8': ^4.1.10
+  '@types/supertest': ^6.0.3
+  jsdom: ^26.1.0
+  supertest: ^7.1.3
   '@replit/vite-plugin-dev-banner': ^0.1.1
   '@replit/vite-plugin-runtime-error-modal': ^0.0.6
   '@tailwindcss/vite': ^4.1.14

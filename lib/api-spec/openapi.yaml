@@ -27,29 +27,83 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /trains:
+    get:
+      operationId: getTrainCatalog
+      tags: [trains]
+      summary: Get the full train catalog
+      description: Returns the full list of trains (number + name). Pulled from the official NTES train list and cached server-side (default TTL 2h).
+      responses:
+        "200":
+          description: Train catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainCatalogResponse"
+
   /trains/search:
     get:
       operationId: searchTrains
       tags: [trains]
-      summary: Autocomplete train search
-      description: Returns up to 10 trains matching a partial train number or name query. Uses a curated local dataset — no external dependency.
+      summary: Duck-typed fuzzy search over the train catalog
+      description: Returns the best-matching trains for a query (number prefix, name substring, or fuzzy subsequence), ranked best-first.
       parameters:
         - name: q
           in: query
           required: true
           schema:
             type: string
-            minLength: 2
-          description: Partial train number (e.g. "229") or name fragment (e.g. "Rajdhani")
+          description: Search query (e.g. 229, rajdhani, mumbai rajdhani)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum number of results (default 10)
       responses:
         "200":
-          description: List of matching trains
+          description: Matching trains
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TrainSearchResults"
+                $ref: "#/components/schemas/TrainSearchResponse"
         "400":
-          description: Query too short
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /trains/runs:
+    get:
+      operationId: getTrainRuns
+      tags: [trains]
+      summary: Get the train's recent and upcoming run dates
+      description: Probes the data provider across the last 3 weeks to derive the train's running-weekday pattern, then returns the last 3 departure dates up to today plus the next upcoming run.
+      parameters:
+        - name: train_number
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Train number (e.g. 22943)
+      responses:
+        "200":
+          description: Train run dates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainRunsResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Upstream error from data provider
           content:
             application/json:
               schema:
@@ -111,30 +165,6 @@ components:
       required:
         - status
 
-    TrainSuggestion:
-      type: object
-      description: A single train suggestion from autocomplete
-      properties:
-        number:
-          type: string
-          description: Train number (e.g. "22943")
-        name:
-          type: string
-          description: Train name (e.g. "Indore Intercity SF Express")
-      required:
-        - number
-        - name
-
-    TrainSearchResults:
-      type: object
-      properties:
-        results:
-          type: array
-          items:
-            $ref: "#/components/schemas/TrainSuggestion"
-      required:
-        - results
-
     ErrorResponse:
       type: object
       properties:
@@ -142,6 +172,55 @@ components:
           type: string
       required:
         - error
+
+    TrainEntry:
+      type: object
+      description: A single train in the catalog (number + name)
+      properties:
+        number:
+          type: string
+          description: Train number (e.g. 22943)
+        name:
+          type: string
+          description: Train name (e.g. Indore Intercity SF Express)
+      required:
+        - number
+        - name
+
+    TrainCatalogResponse:
+      type: object
+      properties:
+        trains:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrainEntry"
+      required:
+        - trains
+
+    TrainSearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrainEntry"
+      required:
+        - results
+
+    TrainRunsResponse:
+      type: object
+      description: Recent and upcoming run dates for a train
+      properties:
+        train_number:
+          type: string
+        runs:
+          type: array
+          items:
+            type: string
+          description: Departure dates (YYYYMMDD) of the last 3 runs up to today plus the next upcoming run, ascending. Empty when no runs could be determined.
+      required:
+        - train_number
+        - runs
 
     StationStatus:
       type: object

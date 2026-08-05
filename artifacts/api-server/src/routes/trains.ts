@@ -3,213 +3,233 @@ import {
   GetTrainStatusQueryParams,
   GetTrainStatusResponse,
 } from "@workspace/api-zod";
-import { TRAINS } from "../lib/trains-data";
+import {
+  TRAINS,
+  findTrainByNumber,
+  isValidApiDate,
+} from "@workspace/trains-data";
+import {
+  metrics,
+  trace,
+  SpanStatusCode,
+  type Counter,
+  type Exception,
+} from "@opentelemetry/api";
+import { createTtlCache } from "../lib/ttl-cache";
+import { logger } from "../lib/logger";
+import { createRedisStore } from "../lib/redis-client";
+import { createRedisTtlCache } from "../lib/redis-cache";
+import { zodErrorMessage } from "../lib/zod-errors";
+import {
+  fetchPaytmTrainStatus,
+  PaytmTrainNotFoundError,
+  PaytmUpstreamError,
+} from "../lib/paytm-client";
+import { mapStatusResponse } from "../lib/train-status-mapper";
 
+/** Routes for train running status lookups. */
 const router: IRouter = Router();
 
-const PAYTM_BASE = "https://travel.paytm.com/api/trains/v1/train/status";
+const TRAIN_STATUS_CACHE_TTL_MS = Number(
+  process.env.STATUS_CACHE_TTL_MS ??
+    process.env.TRAIN_STATUS_CACHE_TTL_MS ??
+    5 * 60 * 1000,
+);
 
-/** Parse "HH:MM" time and return total minutes since midnight, or null */
-function toMinutes(t: string | undefined | null): number | null {
-  if (!t) return null;
-  const parts = t.split(":");
-  if (parts.length !== 2) return null;
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  if (isNaN(h) || isNaN(m)) return null;
-  return h * 60 + m;
+/** Local hot-path TTL; shorter than the shared (Redis) TTL so L1 re-promotes from L2. */
+const STATUS_CACHE_L1_TTL_MS = Number(
+  process.env.STATUS_CACHE_L1_TTL_MS ?? 30_000,
+);
+
+/** How long "train not found" results are cached to protect the upstream. */
+const STATUS_CACHE_NEG_TTL_MS = Number(
+  process.env.STATUS_CACHE_NEG_TTL_MS ?? 60_000,
+);
+
+/** TTL randomization (±fraction) to stagger cross-instance expiry. */
+const STATUS_CACHE_TTL_JITTER = Number(
+  process.env.STATUS_CACHE_TTL_JITTER ?? 0.1,
+);
+
+const REDIS_KEY_PREFIX = process.env.REDIS_KEY_PREFIX ?? "tt:status:v1";
+
+const REDIS_COMPRESS = process.env.REDIS_GZIP !== "false";
+
+type TrainStatusPayload = ReturnType<typeof GetTrainStatusResponse.parse>;
+
+type StatusResult =
+  | "ok"
+  | "validation_error"
+  | "not_found"
+  | "upstream_error"
+  | "internal_error";
+
+const getMeter = () => metrics.getMeter("train-tracker-api");
+
+let statusRequestsCounter: Counter | undefined;
+const getStatusRequestsCounter = (): Counter =>
+  (statusRequestsCounter ??= getMeter().createCounter(
+    "trains.status.requests",
+    {
+      description: "Train status lookups by result",
+    },
+  ));
+
+function recordStatusResult(result: StatusResult): void {
+  getStatusRequestsCounter().add(1, { result });
 }
 
-/** Return signed delay (actual - scheduled) in minutes, accounting for day roll-overs */
-function calcDelay(
-  scheduled: string | undefined | null,
-  actual: string | undefined | null,
-): number | null {
-  const s = toMinutes(scheduled);
-  const a = toMinutes(actual);
-  if (s === null || a === null) return null;
-  let diff = a - s;
-  // correct for midnight crossings (e.g. scheduled 23:50, actual 00:10 → +20 min)
-  if (diff < -720) diff += 1440;
-  if (diff > 720) diff -= 1440;
-  return diff;
+function annotateTrainSpan(
+  trainNumber: string,
+  departureDate: string,
+  result: StatusResult,
+): void {
+  const span = trace.getActiveSpan();
+  span?.setAttribute("trains.train_number", trainNumber);
+  span?.setAttribute("trains.departure_date", departureDate);
+  span?.setAttribute("trains.result", result);
 }
 
-/** Strip HTML tags from a string */
-function stripHtml(s: string | undefined | null): string | null {
-  if (!s) return null;
-  return s.replace(/<[^>]+>/g, "").trim() || null;
-}
+const statusCache = createTtlCache<TrainStatusPayload>(STATUS_CACHE_L1_TTL_MS);
+
+/**
+ * Shared, cross-instance cache (Render Key Value) layered under the local
+ * in-process cache. Fail-open: when Redis is unavailable the producer simply
+ * falls through to the upstream and the in-memory cache still works.
+ */
+const redisCache = (() => {
+  const store = createRedisStore();
+  if (!store) return undefined;
+  return createRedisTtlCache<TrainStatusPayload>(store, {
+    ttlMs: TRAIN_STATUS_CACHE_TTL_MS,
+    negativeTtlMs: STATUS_CACHE_NEG_TTL_MS,
+    jitter: STATUS_CACHE_TTL_JITTER,
+    keyPrefix: REDIS_KEY_PREFIX,
+    compress: REDIS_COMPRESS,
+    onError: (err, operation, key) => {
+      logger.error({ err, operation, key }, "Redis cache operation failed");
+    },
+  });
+})();
 
 router.get("/trains/status", async (req, res): Promise<void> => {
+  // Express 5's query parser returns arrays for repeated params (e.g.
+  // `?train_number=1&train_number=2`), and the generated coerce schema would
+  // silently stringify them. Reject missing and repeated params up front so
+  // they fail validation with a clean message instead.
+  const issues: {
+    code: string;
+    message: string;
+    path: string[];
+    expected?: string;
+    received?: string;
+  }[] = [];
+
+  for (const param of Object.keys(GetTrainStatusQueryParams.shape)) {
+    const value = req.query[param];
+    if (value === undefined) {
+      issues.push({ code: "invalid_type", message: "Required", path: [param] });
+    } else if (Array.isArray(value)) {
+      issues.push({
+        code: "invalid_type",
+        expected: "string",
+        received: "array",
+        path: [param],
+        message: "Required",
+      });
+    }
+  }
+
+  if (issues.length > 0) {
+    recordStatusResult("validation_error");
+    res.status(400).json({ error: zodErrorMessage({ issues }) });
+    return;
+  }
+
   const parsed = GetTrainStatusQueryParams.safeParse(req.query);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    recordStatusResult("validation_error");
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
     return;
   }
 
   const { train_number, departure_date } = parsed.data;
 
-  const upstreamUrl = new URL(PAYTM_BASE);
-  upstreamUrl.searchParams.set("train_number", train_number);
-  upstreamUrl.searchParams.set("departure_date", departure_date);
-  upstreamUrl.searchParams.set("isH5", "true");
-  upstreamUrl.searchParams.set("client", "web");
-  upstreamUrl.searchParams.set(
-    "deviceIdentifier",
-    "Mozilla Firefox-150.0.0.0",
-  );
-
-  let upstream: Response;
-  try {
-    upstream = await fetch(upstreamUrl.toString(), {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; TrainTracker/1.0) AppleWebKit/537.36",
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(10_000),
+  if (!isValidApiDate(departure_date)) {
+    recordStatusResult("validation_error");
+    res.status(400).json({
+      error: "departure_date must be a valid date in YYYYMMDD format",
     });
-  } catch (err) {
-    req.log.error({ err }, "Upstream fetch failed");
-    res.status(502).json({ error: "Could not reach train data provider" });
     return;
   }
 
-  if (!upstream.ok) {
-    req.log.warn({ status: upstream.status }, "Upstream returned non-200");
-    res.status(502).json({ error: "Train data provider returned an error" });
-    return;
-  }
+  const key = `${train_number}:${departure_date}`;
 
-  let raw: unknown;
   try {
-    raw = await upstream.json();
-  } catch {
-    res.status(502).json({ error: "Invalid response from train data provider" });
-    return;
-  }
+    const payload = await statusCache.getOrSet(key, async () => {
+      if (redisCache) {
+        const cached = await redisCache.get(key);
+        if (cached.status === "hit") return cached.value;
+        if (cached.status === "negative") {
+          throw new PaytmTrainNotFoundError(
+            "Train not found or no data available",
+          );
+        }
+      }
 
-  // Type-narrow the Paytm response
-  if (
-    !raw ||
-    typeof raw !== "object" ||
-    !("body" in raw) ||
-    !raw.body ||
-    typeof raw.body !== "object"
-  ) {
-    req.log.warn({ raw }, "Unexpected upstream response shape");
-    res.status(502).json({ error: "Unexpected response from data provider" });
-    return;
-  }
-
-  const body = raw.body as Record<string, unknown>;
-
-  // Check for error from upstream
-  if ("error" in raw && raw.error) {
-    const status = "status" in raw ? (raw.status as Record<string, unknown>) : {};
-    const result = typeof status === "object" && status && "result" in status
-      ? String(status.result)
-      : "";
-    if (result !== "success") {
+      try {
+        const upstream = await fetchPaytmTrainStatus(
+          train_number,
+          departure_date,
+        );
+        const mapped = mapStatusResponse(
+          upstream,
+          train_number,
+          departure_date,
+          findTrainByNumber(TRAINS, train_number) ?? null,
+        );
+        const payload = GetTrainStatusResponse.parse(mapped);
+        await redisCache?.set(key, payload);
+        return payload;
+      } catch (err) {
+        if (err instanceof PaytmTrainNotFoundError) {
+          await redisCache?.setNegative(key);
+        }
+        throw err;
+      }
+    });
+    annotateTrainSpan(train_number, departure_date, "ok");
+    recordStatusResult("ok");
+    res.json(payload);
+  } catch (err) {
+    if (err instanceof PaytmTrainNotFoundError) {
+      annotateTrainSpan(train_number, departure_date, "not_found");
+      trace.getActiveSpan()?.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: "train not found",
+      });
+      recordStatusResult("not_found");
       res.status(404).json({ error: "Train not found or no data available" });
       return;
     }
-  }
-
-  const rawStations = Array.isArray(body.stations) ? body.stations : [];
-  const currentStationCode =
-    typeof body.current_station === "string" ? body.current_station : null;
-
-  // Find current station serial number for has_departed calculation
-  const currentSerial = rawStations.reduce((acc: number, s: unknown) => {
-    if (
-      s &&
-      typeof s === "object" &&
-      "stationCode" in s &&
-      (s as Record<string, unknown>).stationCode === currentStationCode &&
-      "stnSerialNumber" in s
-    ) {
-      return parseInt(String((s as Record<string, unknown>).stnSerialNumber), 10);
+    if (err instanceof PaytmUpstreamError) {
+      annotateTrainSpan(train_number, departure_date, "upstream_error");
+      const span = trace.getActiveSpan();
+      span?.recordException(err as Exception);
+      span?.setStatus({ code: SpanStatusCode.ERROR });
+      recordStatusResult("upstream_error");
+      req.log.error({ err }, "Upstream fetch failed");
+      res.status(502).json({ error: "Could not reach train data provider" });
+      return;
     }
-    return acc;
-  }, 0);
-
-  const stations = rawStations.map((s: unknown) => {
-    const st = s as Record<string, unknown>;
-    const serial = parseInt(String(st.stnSerialNumber ?? "0"), 10);
-    const isCurrent = st.stationCode === currentStationCode;
-    const hasDeparted = serial < currentSerial || (isCurrent && !!st.actual_departure_time);
-
-    const scheduledArrival =
-      st.arrivalTime && st.dayCount
-        ? String(st.arrivalTime)
-        : null;
-    const scheduledDeparture =
-      st.departureTime && st.dayCount
-        ? String(st.departureTime)
-        : null;
-    const actualArrival =
-      typeof st.actual_arrival_time === "string" ? st.actual_arrival_time : null;
-    const actualDeparture =
-      typeof st.actual_departure_time === "string" ? st.actual_departure_time : null;
-
-    const delayMinutes = calcDelay(scheduledArrival, actualArrival);
-
-    return {
-      station_code: String(st.stationCode ?? ""),
-      station_name: String(st.stationName ?? ""),
-      scheduled_arrival: scheduledArrival,
-      actual_arrival: actualArrival,
-      scheduled_departure: scheduledDeparture,
-      actual_departure: actualDeparture,
-      delay_minutes: delayMinutes,
-      distance_from_source:
-        st.distance !== undefined ? Number(st.distance) : null,
-      platform:
-        st.expected_platform !== undefined
-          ? String(st.expected_platform)
-          : null,
-      halt_minutes:
-        typeof st.haltTime === "number" ? st.haltTime : null,
-      has_departed: hasDeparted,
-      is_current: isCurrent,
-      day: parseInt(String(st.dayCount ?? "1"), 10),
-    };
-  });
-
-  const firstStation = stations[0];
-  const lastStation = stations[stations.length - 1];
-
-  // Derive current delay from current station
-  const currentStationData = stations.find((st) => st.is_current);
-  const currentDelay = currentStationData?.delay_minutes ?? null;
-
-  const knownTrain = TRAINS.find((t) => t.number === train_number);
-
-  const response = GetTrainStatusResponse.parse({
-    train_number: train_number,
-    train_name: knownTrain ? knownTrain.name : `Train ${train_number}`,
-    departure_date: String(departure_date),
-    source_station_code: firstStation?.station_code ?? "",
-    source_station_name: firstStation?.station_name ?? "",
-    destination_station_code: lastStation?.station_code ?? "",
-    destination_station_name: lastStation?.station_name ?? "",
-    current_station_code: currentStationCode,
-    current_station_name:
-      currentStationData?.station_name ?? null,
-    current_delay_minutes: currentDelay,
-    status_message: stripHtml(
-      typeof body.train_status_message === "string"
-        ? body.train_status_message
-        : null,
-    ),
-    last_updated:
-      typeof body.server_timestamp === "string" ? body.server_timestamp : null,
-    stations,
-  });
-
-  res.json(response);
+    annotateTrainSpan(train_number, departure_date, "internal_error");
+    const span = trace.getActiveSpan();
+    span?.recordException(err as Exception);
+    span?.setStatus({ code: SpanStatusCode.ERROR });
+    recordStatusResult("internal_error");
+    req.log.error({ err }, "Unexpected error");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;

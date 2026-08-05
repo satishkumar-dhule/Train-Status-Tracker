@@ -1,154 +1,156 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  getSearchTrainsQueryKey,
-  useSearchTrains,
-} from "@workspace/api-client-react";
-import type { TrainSuggestion } from "@workspace/api-client-react";
-import { useDebouncedValue } from "./use-debounce";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MIN_QUERY_LENGTH,
-  isValidTrainNumberFormat,
+  TRAINS,
   normalizeTrainNumber,
-  validateTrain,
-} from "../lib/validation";
+  searchTrains,
+  uniqueByNumber,
+} from "@workspace/trains-data";
+import type { TrainEntry } from "@workspace/trains-data";
+import { validateTrainQuery } from "../lib/validation";
 import type { TrainValidationState } from "../lib/validation";
-
-const DEBOUNCE_MS = 300;
+export interface AutocompleteOption {
+  id: string;
+  kind: "recent" | "suggestion";
+  train: TrainEntry;
+}
 
 export interface TrainAutocompleteApi {
   value: string;
   onValueChange: (value: string) => void;
-  suggestions: TrainSuggestion[];
+  options: AutocompleteOption[];
   status: TrainValidationState;
   open: boolean;
   highlightedIndex: number;
-  select: (suggestion: TrainSuggestion) => void;
-  close: () => void;
+  activeOptionId: string | null;
+  listRef: React.RefObject<HTMLUListElement | null>;
+  select: (option: AutocompleteOption) => void;
   handleKeyDown: (e: React.KeyboardEvent) => void;
   handleFocus: () => void;
+  handleBlur: () => void;
+  close: () => void;
 }
 
+/** Autocomplete state machine for the train-number input: merged recents + suggestions, keyboard navigation, and ARIA active-descendant support. */
 export function useTrainAutocomplete(
   value: string,
   onValueChange: (value: string) => void,
+  recent: TrainEntry[],
+  trains: TrainEntry[] = TRAINS,
 ): TrainAutocompleteApi {
-  const [selected, setSelected] = useState<TrainSuggestion | null>(null);
+  const [selected, setSelected] = useState<TrainEntry | null>(null);
   const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const listRef = useRef<HTMLUListElement | null>(null);
 
   const normalized = normalizeTrainNumber(value);
-  const debounced = useDebouncedValue(normalized, DEBOUNCE_MS);
 
-  const formatOk = isValidTrainNumberFormat(debounced);
-  const enabled = debounced.length >= MIN_QUERY_LENGTH && formatOk;
-
-  const { data, isFetching, isError } = useSearchTrains(
-    { q: debounced },
-    {
-      query: {
-        enabled,
-        queryKey: getSearchTrainsQueryKey({ q: debounced }),
-        staleTime: 60_000,
-        placeholderData: (prev) => prev,
-        retry: false,
-        refetchOnWindowFocus: false,
-      },
-    },
-  );
-
-  const suggestions = useMemo(
-    () => (enabled && data && !isFetching ? (data.results ?? []) : []),
-    [data, enabled, isFetching],
-  );
-
-  const fetchState = !enabled
-    ? "idle"
-    : isFetching
-      ? "fetching"
-      : isError
-        ? "error"
-        : "success";
+  const options = useMemo(() => {
+    const suggestionTrains =
+      normalized.length >= MIN_QUERY_LENGTH
+        ? searchTrains(normalized, 10, trains)
+        : [];
+    const merged = uniqueByNumber([...recent, ...suggestionTrains]);
+    if (merged.length === 0) return [];
+    const recentNumbers = new Set(recent.map((train) => train.number));
+    return merged.map<AutocompleteOption>((train) => ({
+      id: `train-opt-${train.number}`,
+      kind: recentNumbers.has(train.number) ? "recent" : "suggestion",
+      train,
+    }));
+  }, [recent, normalized, trains]);
 
   const status = useMemo(
-    () => validateTrain(value, selected, suggestions, fetchState),
-    [value, selected, suggestions, fetchState],
+    () => validateTrainQuery(value, selected, trains),
+    [value, selected, trains],
   );
-
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-  const valueRef = useRef(value);
-  valueRef.current = value;
 
   const onValueChangeCb = useCallback(
     (next: string) => {
       onValueChange(next);
       setSelected(null);
       setHighlightedIndex(-1);
-    },
-    [onValueChange],
-  );
-
-  const select = useCallback(
-    (suggestion: TrainSuggestion) => {
-      const next = normalizeTrainNumber(suggestion.number);
-      onValueChange(next);
-      setSelected(suggestion);
-      setHighlightedIndex(-1);
+      setDismissed(false);
     },
     [onValueChange],
   );
 
   const close = useCallback(() => {
+    setDismissed(true);
     setHighlightedIndex(-1);
   }, []);
 
-  const open =
-    focused && (suggestions.length > 0 || (enabled && isFetching) || isError);
+  const select = useCallback(
+    (option: AutocompleteOption) => {
+      onValueChange(normalizeTrainNumber(option.train.number));
+      setSelected(option.train);
+      setHighlightedIndex(-1);
+      close();
+    },
+    [onValueChange, close],
+  );
 
-  const handleFocus = useCallback(() => setFocused(true), []);
+  const open = focused && !dismissed && options.length > 0;
+
+  const handleFocus = useCallback(() => {
+    setFocused(true);
+    setDismissed(false);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    setFocused(false);
+    setHighlightedIndex(-1);
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlightedIndex((prev) =>
-          suggestions.length === 0 ? -1 : (prev + 1) % suggestions.length,
-        );
+        if (options.length === 0) return;
+        setHighlightedIndex((i) => (i + 1) % options.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setHighlightedIndex((prev) =>
-          suggestions.length === 0
-            ? -1
-            : (prev - 1 + suggestions.length) % suggestions.length,
-        );
+        setHighlightedIndex((i) => (i <= 0 ? options.length - 1 : i - 1));
+      } else if (e.key === "Home") {
+        setHighlightedIndex(0);
+      } else if (e.key === "End") {
+        setHighlightedIndex(options.length - 1);
       } else if (e.key === "Enter") {
-        if (
-          open &&
-          highlightedIndex >= 0 &&
-          highlightedIndex < suggestions.length
-        ) {
+        if (open && highlightedIndex >= 0) {
           e.preventDefault();
-          select(suggestions[highlightedIndex]);
+          select(options[highlightedIndex]);
         }
       } else if (e.key === "Escape") {
-        setHighlightedIndex(-1);
+        e.preventDefault();
+        close();
       }
     },
-    [open, highlightedIndex, suggestions, select],
+    [open, highlightedIndex, options, select, close],
   );
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (highlightedIndex < 0 || !list) return;
+    const option = list.querySelector(
+      `[data-option-index="${highlightedIndex}"]`,
+    );
+    option?.scrollIntoView({ block: "nearest" });
+  }, [highlightedIndex, options]);
 
   return {
     value,
     onValueChange: onValueChangeCb,
-    suggestions,
+    options,
     status,
     open,
     highlightedIndex,
+    activeOptionId: options[highlightedIndex]?.id ?? null,
+    listRef,
     select,
-    close,
     handleKeyDown,
     handleFocus,
+    handleBlur,
+    close,
   };
 }
-
-export type { TrainSuggestion };

@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  TRAINS,
+  formatDuration,
+  formatShortDate,
+  getUpcomingDates,
   isValidDepartureDate,
-  isValidTrainNumberFormat,
   matchesTrainNumber,
   normalizeTrainNumber,
-  splitHighlight,
   toApiDate,
-  validateTrain,
+} from "@workspace/trains-data";
+import {
+  isValidTrainNumberFormat,
+  resolveTrain,
+  splitHighlight,
+  validateTrainQuery,
 } from "./validation";
-import type { TrainSuggestion } from "@workspace/api-client-react";
+import type { TrainEntry } from "@workspace/trains-data";
 
-const suggestion = (number: string, name = `Train ${number}`): TrainSuggestion => ({
+const suggestion = (number: string, name = `Train ${number}`): TrainEntry => ({
   number,
   name,
 });
@@ -47,6 +54,60 @@ describe("matchesTrainNumber", () => {
   });
 });
 
+describe("getUpcomingDates", () => {
+  it("returns today onward for the given count", () => {
+    const now = new Date(2026, 7, 2); // 2026-08-02 local
+    expect(getUpcomingDates(3, now)).toEqual([
+      "2026-08-02",
+      "2026-08-03",
+      "2026-08-04",
+    ]);
+  });
+
+  it("rolls over month and year boundaries", () => {
+    const now = new Date(2026, 11, 30);
+    expect(getUpcomingDates(3, now)).toEqual([
+      "2026-12-30",
+      "2026-12-31",
+      "2027-01-01",
+    ]);
+  });
+
+  it("returns empty for count <= 0", () => {
+    expect(getUpcomingDates(0)).toEqual([]);
+    expect(getUpcomingDates(-1)).toEqual([]);
+  });
+});
+
+describe("formatShortDate", () => {
+  it("renders day + short month", () => {
+    expect(formatShortDate("2026-08-02")).toBe("2 Aug");
+  });
+
+  it("pads nothing and handles single-digit days", () => {
+    expect(formatShortDate("2026-12-01")).toBe("1 Dec");
+  });
+
+  it("returns the input unchanged when not a valid ISO date", () => {
+    expect(formatShortDate("nonsense")).toBe("nonsense");
+  });
+});
+
+describe("formatDuration", () => {
+  it("formats hours and minutes", () => {
+    expect(formatDuration(510)).toBe("8h 30m");
+    expect(formatDuration(480)).toBe("8h");
+    expect(formatDuration(45)).toBe("45m");
+    expect(formatDuration(0)).toBe("0m");
+  });
+
+  it("handles invalid input fail-closed", () => {
+    expect(formatDuration(NaN)).toBe("--");
+    expect(formatDuration(-5)).toBe("--");
+    expect(formatDuration(Infinity)).toBe("--");
+  });
+});
+
 describe("isValidDepartureDate", () => {
   const now = new Date(2026, 7, 2); // 2026-08-02 local
 
@@ -77,61 +138,135 @@ describe("toApiDate", () => {
   });
 });
 
-describe("validateTrain", () => {
+describe("validateTrainQuery", () => {
   it("is idle for empty input", () => {
-    expect(validateTrain("", null, [], "idle")).toEqual({ status: "idle" });
+    expect(validateTrainQuery("", null, TRAINS)).toEqual({ status: "idle" });
   });
 
-  it("is invalid when the format is wrong", () => {
-    expect(validateTrain("22", null, [], "success")).toMatchObject({
-      status: "invalid",
+  it("is idle for input shorter than two characters", () => {
+    expect(validateTrainQuery("2", null, TRAINS)).toEqual({ status: "idle" });
+    expect(validateTrainQuery("R", null, TRAINS)).toEqual({ status: "idle" });
+  });
+
+  it("is valid for an exact number match", () => {
+    expect(validateTrainQuery("22943", null, TRAINS)).toMatchObject({
+      status: "valid",
+      message: "hint.valid",
     });
   });
 
-  it("is checking while a fetch is in flight", () => {
-    expect(validateTrain("22943", null, [], "fetching")).toMatchObject({
-      status: "checking",
+  it("is valid for a unique full-name match", () => {
+    expect(validateTrainQuery("SEALDAH RAJDHANI EXPRESS", null, TRAINS)).toMatchObject({
+      status: "valid",
+      message: "hint.valid",
     });
   });
 
-  it("is valid when exactly one suggestion matches", () => {
-    const results = [suggestion("22943")];
-    expect(validateTrain("22943", null, results, "success")).toMatchObject({
+  it("is valid for a unique full name with arbitrary spacing", () => {
+    expect(validateTrainQuery("sealdah   rajdhani express", null, TRAINS)).toMatchObject({
       status: "valid",
     });
   });
 
-  it("is valid when a previously selected suggestion still matches", () => {
-    const selected = suggestion("22943");
-    expect(validateTrain("22943", selected, [], "success")).toMatchObject({
+  it("is valid when a previously selected suggestion matches the input", () => {
+    const selected = suggestion("22943", "Indore Intercity SF Express");
+    expect(validateTrainQuery("22943", selected, TRAINS)).toMatchObject({
       status: "valid",
+      message: "hint.valid",
     });
   });
 
   it("ignores a stale selection that no longer matches the input", () => {
     const selected = suggestion("12001");
-    expect(validateTrain("22943", selected, [], "success")).toMatchObject({
-      status: "invalid",
+    expect(validateTrainQuery("22943", selected, TRAINS)).toMatchObject({
+      status: "valid",
     });
   });
 
-  it("is invalid when nothing matches", () => {
-    expect(validateTrain("99999", null, [suggestion("22943")], "success")).toMatchObject({
-      status: "invalid",
+  it("dedupes duplicate numbers before resolving", () => {
+    expect(validateTrainQuery("12311", null, TRAINS)).toMatchObject({
+      status: "valid",
     });
   });
 
-  it("is invalid when two suggestions match (ambiguous)", () => {
-    const results = [suggestion("22943"), suggestion("22943")];
-    expect(validateTrain("22943", null, results, "success")).toMatchObject({
+  it("is invalid with partial results (pickSuggestion)", () => {
+    expect(validateTrainQuery("229", null, TRAINS)).toMatchObject({
       status: "invalid",
+      message: "hint.pickSuggestion",
+    });
+    expect(validateTrainQuery("RAJ", null, TRAINS)).toMatchObject({
+      status: "invalid",
+      message: "hint.pickSuggestion",
     });
   });
 
-  it("is invalid on fetch error (fail closed)", () => {
-    expect(validateTrain("22943", null, [], "error")).toMatchObject({
+  it("prefers pickSuggestion over invalidFormat when results exist", () => {
+    expect(validateTrainQuery("2294", null, TRAINS)).toMatchObject({
       status: "invalid",
+      message: "hint.pickSuggestion",
     });
+  });
+
+  it("is invalid (invalidFormat) for a short numeric input with no matches", () => {
+    expect(validateTrainQuery("77", null, TRAINS)).toMatchObject({
+      status: "invalid",
+      message: "hint.invalidFormat",
+    });
+  });
+
+  it("is invalid (noMatch) for gibberish", () => {
+    expect(validateTrainQuery("ZZZZ", null, TRAINS)).toMatchObject({
+      status: "invalid",
+      message: "hint.noMatch",
+    });
+  });
+
+  it("is invalid (noMatch) for a well-formed number not in the dataset", () => {
+    expect(validateTrainQuery("99999", null, TRAINS)).toMatchObject({
+      status: "invalid",
+      message: "hint.noMatch",
+    });
+  });
+
+  it("is invalid (pickSuggestion) for an ambiguous shared name", () => {
+    expect(validateTrainQuery("GOLDEN TEMPLE MAIL", null, TRAINS)).toMatchObject({
+      status: "invalid",
+      message: "hint.pickSuggestion",
+    });
+  });
+});
+
+describe("resolveTrain", () => {
+  it("resolves via the selected train", () => {
+    const selected = suggestion("22943", "Indore Intercity SF Express");
+    expect(resolveTrain("22943", selected, TRAINS)).toEqual(selected);
+  });
+
+  it("resolves via exact number (normalized, spaces stripped)", () => {
+    expect(resolveTrain(" 2 2 9 4 3 ", null, TRAINS)).toEqual({
+      number: "22943",
+      name: "Indore Intercity SF Express",
+    });
+  });
+
+  it("resolves via unique full name (case/space insensitive)", () => {
+    expect(resolveTrain("indore   intercity  sf express", null, TRAINS)).toEqual({
+      number: "22943",
+      name: "Indore Intercity SF Express",
+    });
+  });
+
+  it("returns null for an ambiguous shared name", () => {
+    expect(resolveTrain("GOLDEN TEMPLE MAIL", null, TRAINS)).toBeNull();
+  });
+
+  it("returns null for an unknown query", () => {
+    expect(resolveTrain("ZZZZ", null, TRAINS)).toBeNull();
+    expect(resolveTrain("99999", null, TRAINS)).toBeNull();
+  });
+
+  it("returns null for an empty query", () => {
+    expect(resolveTrain("", null, TRAINS)).toBeNull();
   });
 });
 
@@ -160,6 +295,20 @@ describe("splitHighlight", () => {
       { text: "1", highlight: false },
       { text: "200", highlight: true },
       { text: "1", highlight: false },
+    ]);
+  });
+
+  it("matches a multi-word query across the spaces in the name", () => {
+    expect(splitHighlight("Mumbai Rajdhani Express", "mumbai rajdhani")).toEqual([
+      { text: "Mumbai Rajdhani", highlight: true },
+      { text: " Express", highlight: false },
+    ]);
+  });
+
+  it("matches a space-free query that spans name words", () => {
+    expect(splitHighlight("Mumbai Rajdhani Express", "MUMBAIRAJDHANI")).toEqual([
+      { text: "Mumbai Rajdhani", highlight: true },
+      { text: " Express", highlight: false },
     ]);
   });
 });

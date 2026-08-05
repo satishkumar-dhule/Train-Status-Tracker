@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { I18nProvider, useI18n } from './lib/i18n';
+import { RecentSearchesProvider } from './context/recent-searches';
 import Home from './pages/Home';
 
 const queryClient = new QueryClient();
@@ -34,9 +35,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
-        </WouterRouter>
+        <RecentSearchesProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <Router />
+          </WouterRouter>
+        </RecentSearchesProvider>
       </I18nProvider>
     </QueryClientProvider>
   );

@@ -1,12 +1,14 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import trainsRouter from "./trains";
-import trainsSearchRouter from "./trains-search";
+import trainCatalogRouter from "./train-catalog";
+import trainRunsRouter from "./train-runs";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use(trainsSearchRouter);
 router.use(trainsRouter);
+router.use(trainCatalogRouter);
+router.use(trainRunsRouter);
 
 export default router;

@@ -17,10 +17,13 @@ import type {
 
 import type {
   ErrorResponse,
+  GetTrainRunsParams,
   GetTrainStatusParams,
   HealthStatus,
   SearchTrainsParams,
-  TrainSearchResults,
+  TrainCatalogResponse,
+  TrainRunsResponse,
+  TrainSearchResponse,
   TrainStatusResponse
 } from './api.schemas';
 
@@ -129,6 +132,84 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+export const getGetTrainCatalogUrl = () => {
+
+
+
+
+  return `/api/trains`
+}
+
+/**
+ * Returns the full list of trains (number + name). Pulled from the official NTES train list and cached server-side (default TTL 2h).
+ * @summary Get the full train catalog
+ */
+export const getTrainCatalog = async ( options?: Parameters<typeof customFetch>[1]): Promise<TrainCatalogResponse> => {
+
+  return customFetch<TrainCatalogResponse>(getGetTrainCatalogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTrainCatalogQueryKey = () => {
+    return [
+    `/api/trains`
+    ] as const;
+    }
+
+
+export const getGetTrainCatalogQueryOptions = <TData = Awaited<ReturnType<typeof getTrainCatalog>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrainCatalog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTrainCatalogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrainCatalog>>> = ({ signal }) => getTrainCatalog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrainCatalog>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTrainCatalogQueryResult = NonNullable<Awaited<ReturnType<typeof getTrainCatalog>>>
+export type GetTrainCatalogQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the full train catalog
+ */
+
+export function useGetTrainCatalog<TData = Awaited<ReturnType<typeof getTrainCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrainCatalog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTrainCatalogQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getSearchTrainsUrl = (params: SearchTrainsParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -145,12 +226,12 @@ export const getSearchTrainsUrl = (params: SearchTrainsParams,) => {
 }
 
 /**
- * Returns up to 10 trains matching a partial train number or name query. Uses a curated local dataset — no external dependency.
- * @summary Autocomplete train search
+ * Returns the best-matching trains for a query (number prefix, name substring, or fuzzy subsequence), ranked best-first.
+ * @summary Duck-typed fuzzy search over the train catalog
  */
-export const searchTrains = async (params: SearchTrainsParams, options?: Parameters<typeof customFetch>[1]): Promise<TrainSearchResults> => {
+export const searchTrains = async (params: SearchTrainsParams, options?: Parameters<typeof customFetch>[1]): Promise<TrainSearchResponse> => {
 
-  return customFetch<TrainSearchResults>(getSearchTrainsUrl(params),
+  return customFetch<TrainSearchResponse>(getSearchTrainsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -193,7 +274,7 @@ export type SearchTrainsQueryError = ErrorType<ErrorResponse>
 
 
 /**
- * @summary Autocomplete train search
+ * @summary Duck-typed fuzzy search over the train catalog
  */
 
 export function useSearchTrains<TData = Awaited<ReturnType<typeof searchTrains>>, TError = ErrorType<ErrorResponse>>(
@@ -202,6 +283,91 @@ export function useSearchTrains<TData = Awaited<ReturnType<typeof searchTrains>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getSearchTrainsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTrainRunsUrl = (params: GetTrainRunsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/trains/runs?${stringifiedParams}` : `/api/trains/runs`
+}
+
+/**
+ * Probes the data provider across the last 3 weeks to derive the train's running-weekday pattern, then returns the last 3 departure dates up to today plus the next upcoming run.
+ * @summary Get the train's recent and upcoming run dates
+ */
+export const getTrainRuns = async (params: GetTrainRunsParams, options?: Parameters<typeof customFetch>[1]): Promise<TrainRunsResponse> => {
+
+  return customFetch<TrainRunsResponse>(getGetTrainRunsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTrainRunsQueryKey = (params?: GetTrainRunsParams,) => {
+    return [
+    `/api/trains/runs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetTrainRunsQueryOptions = <TData = Awaited<ReturnType<typeof getTrainRuns>>, TError = ErrorType<ErrorResponse>>(params: GetTrainRunsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrainRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTrainRunsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrainRuns>>> = ({ signal }) => getTrainRuns(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrainRuns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTrainRunsQueryResult = NonNullable<Awaited<ReturnType<typeof getTrainRuns>>>
+export type GetTrainRunsQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Get the train's recent and upcoming run dates
+ */
+
+export function useGetTrainRuns<TData = Awaited<ReturnType<typeof getTrainRuns>>, TError = ErrorType<ErrorResponse>>(
+ params: GetTrainRunsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrainRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTrainRunsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

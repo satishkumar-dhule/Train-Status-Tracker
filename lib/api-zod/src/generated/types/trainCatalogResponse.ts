@@ -5,8 +5,8 @@
  * Train status tracker API — proxies to Paytm trains data source
  * OpenAPI spec version: 0.1.0
  */
-import type { TrainSuggestion } from './trainSuggestion';
+import type { TrainEntry } from './trainEntry';
 
-export interface TrainSearchResults {
-  results: TrainSuggestion[];
+export interface TrainCatalogResponse {
+  trains: TrainEntry[];
 }

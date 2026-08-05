@@ -18,23 +18,50 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * Returns up to 10 trains matching a partial train number or name query. Uses a curated local dataset — no external dependency.
- * @summary Autocomplete train search
+ * Returns the full list of trains (number + name). Pulled from the official NTES train list and cached server-side (default TTL 2h).
+ * @summary Get the full train catalog
  */
-export const searchTrainsQueryQMin = 2;
+export const GetTrainCatalogResponse = zod.object({
+  "trains": zod.array(zod.object({
+  "number": zod.string().describe('Train number (e.g. 22943)'),
+  "name": zod.string().describe('Train name (e.g. Indore Intercity SF Express)')
+}).describe('A single train in the catalog (number + name)'))
+})
+
+
+/**
+ * Returns the best-matching trains for a query (number prefix, name substring, or fuzzy subsequence), ranked best-first.
+ * @summary Duck-typed fuzzy search over the train catalog
+ */
+export const searchTrainsQueryLimitMax = 100;
 
 
 
 export const SearchTrainsQueryParams = zod.object({
-  "q": zod.coerce.string().min(searchTrainsQueryQMin).describe('Partial train number (e.g. \"229\") or name fragment (e.g. \"Rajdhani\")')
+  "q": zod.coerce.string().describe('Search query (e.g. 229, rajdhani, mumbai rajdhani)'),
+  "limit": zod.coerce.number().int().min(1).max(searchTrainsQueryLimitMax).optional().describe('Maximum number of results (default 10)')
 })
 
 export const SearchTrainsResponse = zod.object({
   "results": zod.array(zod.object({
-  "number": zod.string().describe('Train number (e.g. \"22943\")'),
-  "name": zod.string().describe('Train name (e.g. \"Indore Intercity SF Express\")')
-}).describe('A single train suggestion from autocomplete'))
+  "number": zod.string().describe('Train number (e.g. 22943)'),
+  "name": zod.string().describe('Train name (e.g. Indore Intercity SF Express)')
+}).describe('A single train in the catalog (number + name)'))
 })
+
+
+/**
+ * Probes the data provider across the last 3 weeks to derive the train's running-weekday pattern, then returns the last 3 departure dates up to today plus the next upcoming run.
+ * @summary Get the train's recent and upcoming run dates
+ */
+export const GetTrainRunsQueryParams = zod.object({
+  "train_number": zod.coerce.string().describe('Train number (e.g. 22943)')
+})
+
+export const GetTrainRunsResponse = zod.object({
+  "train_number": zod.string(),
+  "runs": zod.array(zod.string()).describe('Departure dates (YYYYMMDD) of the last 3 runs up to today plus the next upcoming run, ascending. Empty when no runs could be determined.')
+}).describe('Recent and upcoming run dates for a train')
 
 
 /**

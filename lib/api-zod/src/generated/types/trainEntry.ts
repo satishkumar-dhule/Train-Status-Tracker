@@ -7,11 +7,11 @@
  */
 
 /**
- * A single train suggestion from autocomplete
+ * A single train in the catalog (number + name)
  */
-export interface TrainSuggestion {
-  /** Train number (e.g. "22943") */
+export interface TrainEntry {
+  /** Train number (e.g. 22943) */
   number: string;
-  /** Train name (e.g. "Indore Intercity SF Express") */
+  /** Train name (e.g. Indore Intercity SF Express) */
   name: string;
 }

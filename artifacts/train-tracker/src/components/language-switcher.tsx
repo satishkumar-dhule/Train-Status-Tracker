@@ -10,7 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function LanguageSwitcher({ className }: { className?: string }) {
+export function LanguageSwitcher({
+  className,
+  iconOnly = false,
+}: {
+  className?: string;
+  iconOnly?: boolean;
+}) {
   const { lang, setLang, languages } = useI18n();
 
   return (
@@ -19,12 +25,13 @@ export function LanguageSwitcher({ className }: { className?: string }) {
         aria-label="Select language"
         className={cn(
           "h-9 w-auto gap-2 font-mono text-xs uppercase tracking-widest",
+          iconOnly && "w-9 px-0 justify-center gap-0 [&>svg:last-child]:hidden",
           className,
         )}
         data-testid="select-language"
       >
         <Languages className="h-4 w-4 shrink-0" />
-        <SelectValue>{languages[lang].native}</SelectValue>
+        {!iconOnly && <SelectValue>{languages[lang].native}</SelectValue>}
       </SelectTrigger>
       <SelectContent>
         {LANGS.map((code) => (

@@ -1,18 +1,24 @@
-import { useEffect } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import { useI18n } from "@/lib/i18n";
-import type { Key } from "@/lib/i18n";
-import { splitHighlight } from "@/lib/validation";
-import { cn } from "@/lib/utils";
-import { Input, Spinner } from "@/components/ui";
-import { useTrainAutocomplete } from "@/hooks/use-train-autocomplete";
-import type { TrainValidationState } from "@/lib/validation";
+import { useCallback, useEffect } from "react";
+import { AlertTriangle, CheckCircle2, Clock, TrainFront } from "lucide-react";
+import { useI18n } from "../lib/i18n";
+import type { Key } from "../lib/i18n";
+import type { TrainEntry } from "@workspace/trains-data";
+import { splitHighlight } from "../lib/validation";
+import { cn } from "../lib/utils";
+import { Input } from "./ui";
+import { useTrainAutocomplete } from "../hooks/use-train-autocomplete";
+import type { AutocompleteOption } from "../hooks/use-train-autocomplete";
+import { useRecentSearches } from "../hooks/use-recent-searches";
+import { useTrainCatalog } from "../hooks/use-train-catalog";
+import type { TrainValidationState } from "../lib/validation";
 
 export interface TrainNumberInputProps {
   value: string;
   onValueChange: (value: string) => void;
   onValidityChange?: (state: TrainValidationState) => void;
+  onSelectedChange?: (train: TrainEntry | null) => void;
   id?: string;
+  compact?: boolean;
   "data-testid"?: string;
 }
 
@@ -20,17 +26,48 @@ export function TrainNumberInput({
   value,
   onValueChange,
   onValidityChange,
+  onSelectedChange,
   id,
+  compact = false,
   "data-testid": testId,
 }: TrainNumberInputProps) {
   const { t } = useI18n();
-  const { suggestions, status, open, highlightedIndex, select, close, handleKeyDown, handleFocus } =
-    useTrainAutocomplete(value, onValueChange);
+  const { recent, addRecent } = useRecentSearches();
+  const { trains } = useTrainCatalog();
+
+  const handleValueChange = useCallback(
+    (next: string) => {
+      onValueChange(next);
+      onSelectedChange?.(null);
+    },
+    [onValueChange, onSelectedChange],
+  );
+
+  const {
+    onValueChange: handleValueChangeCb,
+    options,
+    status,
+    open,
+    highlightedIndex,
+    activeOptionId,
+    listRef,
+    select,
+    handleKeyDown,
+    handleFocus,
+    handleBlur,
+  } = useTrainAutocomplete(value, handleValueChange, recent, trains);
 
   useEffect(() => {
     onValidityChange?.(status);
   }, [status, onValidityChange]);
 
+  const handleSelect = (option: AutocompleteOption) => {
+    select(option);
+    addRecent(option.train);
+    onSelectedChange?.(option.train);
+  };
+
+  const showRecent = options.some((option) => option.kind === "recent");
   const showError = status.status === "invalid" && status.message;
   const showValid = status.status === "valid";
 
@@ -41,26 +78,30 @@ export function TrainNumberInput({
           id={id}
           type="text"
           value={value}
-          onChange={(e) => onValueChange(e.target.value)}
+          onChange={(e) => handleValueChangeCb(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
-          onBlur={close}
+          onBlur={handleBlur}
           role="combobox"
           aria-expanded={open}
           aria-controls="train-suggestions"
+          aria-activedescendant={
+            open ? (activeOptionId ?? undefined) : undefined
+          }
+          aria-autocomplete="list"
           aria-invalid={showError ? true : undefined}
           placeholder={t("placeholder.trainNumber")}
           autoComplete="off"
           spellCheck={false}
-          inputMode="numeric"
           required
-          className="font-mono text-xl h-14 bg-background border-border focus-visible:ring-primary uppercase tracking-widest pe-12"
+          className="font-mono text-xl h-14 bg-card border-border focus-visible:ring-primary uppercase tracking-widest pe-12 ps-11"
           data-testid={testId ?? "input-train-number"}
         />
+        <span className="absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+          <TrainFront className="w-5 h-5" data-testid="input-train-icon" />
+        </span>
         <span className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none">
-          {status.status === "checking" ? (
-            <Spinner className="text-muted-foreground" />
-          ) : showValid ? (
+          {showValid ? (
             <CheckCircle2
               className="text-success"
               data-testid="status-valid"
@@ -79,48 +120,61 @@ export function TrainNumberInput({
           <ul
             id="train-suggestions"
             role="listbox"
-            className="absolute inset-x-0 top-full z-50 mt-1 max-h-64 overflow-auto rounded-md border border-input bg-popover shadow-md"
+            ref={listRef}
+            className="absolute inset-x-0 top-full z-50 mt-1.5 max-h-64 overflow-auto overscroll-contain [scrollbar-gutter:stable] rounded-xl border border-card-border bg-popover shadow-sm animate-fade-up"
             data-testid="list-train-suggestions"
           >
-            {suggestions.length === 0 ? (
-              <li className="px-4 py-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                {t("hint.validating")}
+            {showRecent && (
+              <li
+                role="presentation"
+                className="px-4 pb-1 pt-2 font-mono text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"
+              >
+                <Clock className="w-3 h-3" /> {t("label.recent")}
               </li>
-            ) : (
-              suggestions.map((suggestion, index) => (
-                <li
-                  key={suggestion.number}
-                  role="option"
-                  aria-selected={index === highlightedIndex}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => select(suggestion)}
-                  className={cn(
-                    "flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5",
-                    index === highlightedIndex && "bg-accent",
-                  )}
-                >
-                  <span className="font-mono text-sm font-bold tracking-wider">
-                    {splitHighlight(suggestion.number, value).map((part, i) =>
-                      part.highlight ? (
-                        <span key={i} className="text-primary">
-                          {part.text}
-                        </span>
-                      ) : (
-                        <span key={i}>{part.text}</span>
-                      ),
-                    )}
-                  </span>
-                  <span className="text-xs text-muted-foreground truncate">
-                    {suggestion.name}
-                  </span>
-                </li>
-              ))
             )}
+            {options.map((option, index) => (
+              <li
+                key={option.train.number}
+                data-option-index={index}
+                id={option.id}
+                role="option"
+                aria-selected={index === highlightedIndex}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleSelect(option)}
+                className={cn(
+                  "flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-primary/10",
+                  index === highlightedIndex && "bg-primary/10",
+                )}
+              >
+                <span className="shrink-0 font-mono text-sm font-bold tracking-wider">
+                  {splitHighlight(option.train.number, value).map((part, i) =>
+                    part.highlight ? (
+                      <span key={i} className="text-primary">
+                        {part.text}
+                      </span>
+                    ) : (
+                      <span key={i}>{part.text}</span>
+                    ),
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-start text-xs text-muted-foreground">
+                  {splitHighlight(option.train.name, value).map((part, i) =>
+                    part.highlight ? (
+                      <span key={i} className="text-primary">
+                        {part.text}
+                      </span>
+                    ) : (
+                      <span key={i}>{part.text}</span>
+                    ),
+                  )}
+                </span>
+              </li>
+            ))}
           </ul>
         )}
       </div>
 
-      {showError && (
+      {!compact && showError && (
         <p
           role="alert"
           className="mt-1.5 font-mono text-xs uppercase tracking-widest text-destructive"
@@ -129,7 +183,7 @@ export function TrainNumberInput({
           {t(status.message as Key)}
         </p>
       )}
-      {showValid && (
+      {!compact && showValid && (
         <p
           className="mt-1.5 font-mono text-xs uppercase tracking-widest text-success"
           data-testid="valid-train-number"

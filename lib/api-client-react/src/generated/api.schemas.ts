@@ -9,22 +9,35 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface ErrorResponse {
+  error: string;
+}
+
 /**
- * A single train suggestion from autocomplete
+ * A single train in the catalog (number + name)
  */
-export interface TrainSuggestion {
-  /** Train number (e.g. "22943") */
+export interface TrainEntry {
+  /** Train number (e.g. 22943) */
   number: string;
-  /** Train name (e.g. "Indore Intercity SF Express") */
+  /** Train name (e.g. Indore Intercity SF Express) */
   name: string;
 }
 
-export interface TrainSearchResults {
-  results: TrainSuggestion[];
+export interface TrainCatalogResponse {
+  trains: TrainEntry[];
 }
 
-export interface ErrorResponse {
-  error: string;
+export interface TrainSearchResponse {
+  results: TrainEntry[];
+}
+
+/**
+ * Recent and upcoming run dates for a train
+ */
+export interface TrainRunsResponse {
+  train_number: string;
+  /** Departure dates (YYYYMMDD) of the last 3 runs up to today plus the next upcoming run, ascending. Empty when no runs could be determined. */
+  runs: string[];
 }
 
 /**
@@ -120,10 +133,22 @@ export interface TrainStatusResponse {
 
 export type SearchTrainsParams = {
 /**
- * Partial train number (e.g. "229") or name fragment (e.g. "Rajdhani")
- * @minLength 2
+ * Search query (e.g. 229, rajdhani, mumbai rajdhani)
  */
 q: string;
+/**
+ * Maximum number of results (default 10)
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type GetTrainRunsParams = {
+/**
+ * Train number (e.g. 22943)
+ */
+train_number: string;
 };
 
 export type GetTrainStatusParams = {

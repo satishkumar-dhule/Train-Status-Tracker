@@ -5,15 +5,11 @@ import { KEYS, LANGS } from "./types";
 
 describe("translate", () => {
   it("returns the exact string for English keys", () => {
-    expect(translate(DICTIONARY, "en", "action.executeTrace")).toBe(
-      "Execute Trace",
-    );
+    expect(translate(DICTIONARY, "en", "action.search")).toBe("Search");
   });
 
   it("returns the translated string for non-English keys", () => {
-    expect(translate(DICTIONARY, "hi", "action.executeTrace")).toBe(
-      "ट्रेस चलाएँ",
-    );
+    expect(translate(DICTIONARY, "hi", "action.search")).toBe("खोजें");
   });
 
   it("interpolates numeric params", () => {
@@ -34,8 +30,9 @@ describe("translate", () => {
     );
   });
 
-  it("returns English for languages with partial translations (fallback merge)", () => {
-    expect(translate(DICTIONARY, "gu", "app.title")).toBe("Terminal.Track");
+  it("returns the translated string for languages with complete dictionaries", () => {
+    expect(translate(DICTIONARY, "gu", "app.title")).toBe("ટર્મિનલ.ટ્રેક");
+    expect(translate(DICTIONARY, "mr", "status.onTime")).toBe("वेळेवर");
   });
 
   it("never produces an undefined template for any lang/key", () => {

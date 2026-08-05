@@ -7,10 +7,13 @@
  */
 
 export * from './errorResponse';
+export * from './getTrainRunsParams';
 export * from './getTrainStatusParams';
 export * from './healthStatus';
 export * from './searchTrainsParams';
 export * from './stationStatus';
-export * from './trainSearchResults';
+export * from './trainCatalogResponse';
+export * from './trainEntry';
+export * from './trainRunsResponse';
+export * from './trainSearchResponse';
 export * from './trainStatusResponse';
-export * from './trainSuggestion';
