@@ -19,6 +19,20 @@ function notFoundPayload(): Response {
   );
 }
 
+function scheduleNotePayload(days: string): Response {
+  return new Response(
+    JSON.stringify({
+      status: { result: "success" },
+      body: {
+        stations: [],
+        current_station: null,
+        train_status_message: `This train runs only on ${days}`,
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 function weekdayOf(apiDate: string): number {
   return new Date(
     Number(apiDate.slice(0, 4)),
@@ -111,6 +125,29 @@ describe("GET /api/trains/runs", () => {
 
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: "Could not reach train data provider" });
+  });
+
+  it("serves schedule-derived runs even when date probes fail upstream", async () => {
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      const date = new URL(url).searchParams.get("departure_date") ?? "";
+      const weekday = weekdayOf(date);
+      if (weekday === 2 || weekday === 3 || weekday === 6) {
+        return scheduleNotePayload("MON,FRI");
+      }
+      throw new TypeError("network down");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const res = await request(app)
+      .get("/api/trains/runs")
+      .query({ train_number: "12435" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      train_number: "12435",
+      runs: ["20260727", "20260731", "20260803", "20260807"],
+    });
   });
 
   it("rejects a missing train_number", async () => {

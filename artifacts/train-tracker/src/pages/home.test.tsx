@@ -7,7 +7,7 @@ import { I18nProvider } from "@/lib/i18n";
 import { RecentSearchesProvider } from "@/context/recent-searches";
 import { RECENT_SEARCHES_STORAGE_KEY } from "@/lib/recent-searches";
 import { VIEW_PREFERENCE_STORAGE_KEY } from "@/hooks/use-view-preference";
-import { getDateWindow, getUpcomingDates, toApiDate } from "@workspace/trains-data";
+import { getUpcomingDates, toApiDate } from "@workspace/trains-data";
 import type { TrainStatusResponse } from "@workspace/api-client-react";
 import Home from "./Home";
 
@@ -108,9 +108,12 @@ function makeResponse(
 
 function mockSuccess() {
   mocks.useTrainStatus.mockImplementation(
-    (params: { train_number: string; departure_date: string } | null) => {
-      mocks.calls.push(params);
-      if (!params) {
+    (
+      params: { train_number: string; departure_date: string } | null,
+      enabled?: boolean,
+    ) => {
+      if (!params || enabled === false) {
+        mocks.calls.push(null);
         return {
           data: undefined,
           isLoading: false,
@@ -122,6 +125,7 @@ function mockSuccess() {
           messageKey: null,
         };
       }
+      mocks.calls.push(params);
       return {
         data: makeResponse({
           train_number: params.train_number,
@@ -141,8 +145,11 @@ function mockSuccess() {
 
 function mockPlaceholder() {
   mocks.useTrainStatus.mockImplementation(
-    (params: { train_number: string; departure_date: string } | null) => {
-      if (!params) {
+    (
+      params: { train_number: string; departure_date: string } | null,
+      enabled?: boolean,
+    ) => {
+      if (!params || enabled === false) {
         return {
           data: undefined,
           isLoading: false,
@@ -176,7 +183,23 @@ function mockError(
   key: "error.trainNotFound" | "error.providerUnreachable" | "error.fallback",
 ) {
   mocks.useTrainStatus.mockImplementation(
-    (params: { train_number: string; departure_date: string } | null) => {
+    (
+      params: { train_number: string; departure_date: string } | null,
+      enabled?: boolean,
+    ) => {
+      if (!params || enabled === false) {
+        mocks.calls.push(null);
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+          isNotFound: false,
+          isProviderError: false,
+          isNetworkError: false,
+          messageKey: null,
+        };
+      }
       mocks.calls.push(params);
       return {
         data: undefined,
@@ -223,7 +246,7 @@ describe("Home", () => {
     mocks.useTrainStatus.mockReset();
     mocks.useTrainRuns.mockReset();
     mocks.useTrainRuns.mockReturnValue({
-      runs: undefined,
+      runs: [],
       isLoading: false,
       isError: false,
     });
@@ -411,32 +434,40 @@ describe("Home", () => {
     expect(screen.queryByTestId("track-view")).not.toBeInTheDocument();
   });
 
-  it("shows the fallback date tabs (2 past, today, 1 ahead) and refetches when a later date is selected", async () => {
+  it("shows no date tabs when the schedule is unknown, but still shows today's status", async () => {
     const user = userEvent.setup();
     mockSuccess();
     renderHome();
 
     await searchFor(user, "22943");
 
-    const tabs = screen.getAllByTestId(/^tab-date-/);
-    expect(tabs).toHaveLength(4);
-    expect(screen.getByText("Latest run")).toBeInTheDocument();
-    expect(screen.queryByText("Today")).not.toBeInTheDocument();
-    expect(screen.queryByText("Tomorrow")).not.toBeInTheDocument();
-    expect(screen.queryByText("Yesterday")).not.toBeInTheDocument();
-    expect(
-      screen.getByTestId(`tab-date-${toApiDate(getDateWindow(2, 1)[0])}`),
-    ).toBeInTheDocument();
-
-    const tomorrowApi = toApiDate(getDateWindow(2, 1)[3]);
-    await user.click(screen.getByTestId(`tab-date-${tomorrowApi}`));
-
+    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
+      "22943",
+    );
+    expect(screen.queryByTestId("date-tabs")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^tab-date-/)).toHaveLength(0);
     expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      departure_date: tomorrowApi,
+      train_number: "22943",
+      departure_date: toApiDate(getUpcomingDates(1)[0]),
     });
-    expect(
-      screen.getByTestId(`tab-date-${tomorrowApi}`),
-    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("holds the status query and shows a skeleton while run dates are loading", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    mocks.useTrainRuns.mockReturnValue({
+      runs: undefined,
+      isLoading: true,
+      isError: false,
+    });
+    renderHome();
+
+    await searchFor(user, "22943");
+
+    expect(screen.getByTestId("status-skeleton")).toBeInTheDocument();
+    expect(mocks.calls.filter((call) => call !== null)).toHaveLength(0);
+    expect(screen.queryByTestId("text-train-number")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^tab-date-/)).toHaveLength(0);
   });
 
   it("shows the train's run-date tabs instead of the calendar window", async () => {
@@ -479,6 +510,11 @@ describe("Home", () => {
     expect(screen.getByTestId("tab-date-20260803")).toHaveAttribute(
       "aria-pressed",
       "true",
+    );
+
+    const todayApi = toApiDate(getUpcomingDates(1)[0]);
+    expect(mocks.calls.filter((call) => call !== null)).not.toContainEqual(
+      expect.objectContaining({ departure_date: todayApi }),
     );
   });
 

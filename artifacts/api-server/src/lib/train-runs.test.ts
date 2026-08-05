@@ -3,6 +3,7 @@ import {
   buildProbeDates,
   computeRunDates,
   mapLimited,
+  parseScheduleWeekdays,
   probeTrainRuns,
 } from "./train-runs";
 
@@ -13,6 +14,20 @@ function successPayload(): Response {
     JSON.stringify({
       status: { result: "success" },
       body: { stations: [], current_station: null },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function scheduleNotePayload(days: string): Response {
+  return new Response(
+    JSON.stringify({
+      status: { result: "success" },
+      body: {
+        stations: [],
+        current_station: null,
+        train_status_message: `This train runs only on ${days}`,
+      },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
@@ -144,6 +159,33 @@ describe("probeTrainRuns", () => {
     expect(result.upstreamFailures).toBe(0);
   });
 
+  it("trusts the schedule note over probe outcomes and restores failed real run days", async () => {
+    // Mirrors train 12435: runs Mon/Fri. Past Fridays return "not found"
+    // (provider lacks data), Mon returns a genuine run, and the other days
+    // answer success carrying the fallback schedule note.
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      const date = new URL(url).searchParams.get("departure_date") ?? "";
+      const weekday = weekdayOf(date);
+      if (weekday === 1) return successPayload();
+      if (weekday === 5) return notFoundPayload();
+      if (weekday === 2 || weekday === 3 || weekday === 6) {
+        return scheduleNotePayload("MON,FRI");
+      }
+      return notFoundPayload();
+    });
+
+    const result = await probeTrainRuns("12435", {
+      fetchImpl: fetchSpy,
+      now: NOW,
+    });
+
+    expect(result.weekdays).toEqual([1, 5]);
+    expect(result.scheduleWeekdays).toEqual([1, 5]);
+    expect(result.observedRuns).toEqual(["20260720", "20260727", "20260803"]);
+    expect(result.upstreamFailures).toBe(0);
+  });
+
   it("records no runs when every probe is not-found", async () => {
     const fetchSpy = vi.fn(async () => notFoundPayload());
 
@@ -152,6 +194,35 @@ describe("probeTrainRuns", () => {
     expect(result.weekdays).toEqual([]);
     expect(result.observedRuns).toEqual([]);
     expect(result.upstreamFailures).toBe(0);
+  });
+});
+
+describe("parseScheduleWeekdays", () => {
+  it("parses a comma-separated schedule note", () => {
+    expect(
+      parseScheduleWeekdays("This train runs only on MON,FRI"),
+    ).toEqual([1, 5]);
+  });
+
+  it("tolerates spaces around the day tokens", () => {
+    expect(
+      parseScheduleWeekdays("This train runs only on MON, WED, SAT"),
+    ).toEqual([1, 3, 6]);
+  });
+
+  it("returns null for a live status message", () => {
+    expect(parseScheduleWeekdays("Train has reached destination.")).toBeNull();
+    expect(parseScheduleWeekdays("Train hasn\u2019t started from the originating station")).toBeNull();
+  });
+
+  it("returns null when a day token is unrecognized", () => {
+    expect(parseScheduleWeekdays("This train runs only on MON,XYZ")).toBeNull();
+  });
+
+  it("returns null for an empty message", () => {
+    expect(parseScheduleWeekdays(null)).toBeNull();
+    expect(parseScheduleWeekdays(undefined)).toBeNull();
+    expect(parseScheduleWeekdays("")).toBeNull();
   });
 });
 

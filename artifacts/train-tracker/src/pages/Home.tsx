@@ -8,7 +8,6 @@ import type {
 import {
   formatShortDate,
   fromApiDate,
-  getDateWindow,
   getUpcomingDates,
   pickDefaultRunDate,
   toApiDate,
@@ -125,7 +124,10 @@ export default function Home() {
     reset,
   } = useTrainSearch({ trains, addRecent });
 
-  const { runs } = useTrainRuns(searched ? apiParams.train_number : null);
+  const {
+    runs,
+    isError: runsError,
+  } = useTrainRuns(searched ? apiParams.train_number : null);
 
   // Once the train's runs are known, land on a run date: today when the train
   // runs today, otherwise the most recent past run (or the next run). Never
@@ -138,27 +140,20 @@ export default function Home() {
     }
   }, [searched, userPickedDate, runs, apiParams.departure_date, setDepartureDate]);
 
+  // Date tabs come exclusively from the train's run dates: the last 3 runs up
+  // to today plus the next run. No calendar-window fallback, so a day the
+  // train does not run on can never appear here.
   const dates = useMemo(() => {
+    if (!runs || runs.length === 0) return [];
     const todayApi = toApiDate(getUpcomingDates(1)[0]);
-    let windowIso: string[]; // ISO date strings
-    let latestRunApi: string | null;
-    let nextRunApi: string | null;
-
-    if (runs && runs.length > 0) {
-      const past = runs.filter((r) => r <= todayApi);
-      const future = runs.filter((r) => r > todayApi);
-      windowIso = [
-        ...past.slice(Math.max(0, past.length - 3)),
-        ...future.slice(0, 1),
-      ].map(fromApiDate);
-      latestRunApi = past.length ? past[past.length - 1] : null;
-      nextRunApi = future[0] ?? null;
-    } else {
-      // Fallback: 2 past days + today + 1 future day.
-      windowIso = getDateWindow(2, 1);
-      latestRunApi = todayApi;
-      nextRunApi = null;
-    }
+    const past = runs.filter((r) => r <= todayApi);
+    const future = runs.filter((r) => r > todayApi);
+    const windowIso = [
+      ...past.slice(Math.max(0, past.length - 3)),
+      ...future.slice(0, 1),
+    ].map(fromApiDate);
+    const latestRunApi = past.length ? past[past.length - 1] : null;
+    const nextRunApi = future[0] ?? null;
 
     return windowIso.map((iso) => {
       const apiDate = toApiDate(iso);
@@ -175,10 +170,26 @@ export default function Home() {
         sub: isLatest || isNext ? formatShortDate(iso) : undefined,
       };
     });
-  }, [t, runs, apiParams.departure_date]);
+  }, [t, runs]);
+
+  // The running-status query must never target a day the train does not run
+  // on. While run dates are still loading it is held; when discovery failed or
+  // returned no schedule (runs empty) we fail open on the selected date so the
+  // app stays usable.
+  const runsKnown = runs !== undefined;
+  const statusEnabled =
+    searched &&
+    (runsError ||
+      (runsKnown &&
+        (runs.length === 0 ||
+          runs.includes(apiParams.departure_date))));
 
   const { data, isLoading, isFetching, isError, isPlaceholderData, messageKey } =
-    useTrainStatus(searched ? apiParams : null);
+    useTrainStatus(searched ? apiParams : null, statusEnabled);
+
+  // While the status query is held (run dates still loading, or the selected
+  // date not yet resolved onto a run day) show a skeleton instead of nothing.
+  const statusPending = searched && statusEnabled === false;
 
   /** A status payload is only "live" while it is current AND freshly updated. */
   const isLiveData =
@@ -393,13 +404,15 @@ export default function Home() {
             </div>
           )}
 
-          <div>
-            <DateTabs
-              dates={dates}
-              active={apiParams.departure_date}
-              onChange={selectDate}
-            />
-          </div>
+          {dates.length > 0 && (
+            <div>
+              <DateTabs
+                dates={dates}
+                active={apiParams.departure_date}
+                onChange={selectDate}
+              />
+            </div>
+          )}
 
           {data ? (
             <div
@@ -439,6 +452,8 @@ export default function Home() {
                 <StationTimeline stations={data.stations} />
               )}
             </div>
+          ) : statusPending ? (
+            <StatusSkeleton />
           ) : isLoading ? (
             <StatusSkeleton />
           ) : isError ? (

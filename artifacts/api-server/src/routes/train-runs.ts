@@ -146,7 +146,11 @@ router.get(
 
     try {
       const probe = await getProbeResult(train_number);
-      if (probe.upstreamFailures > 0 && probe.observedRuns.length === 0) {
+      if (
+        probe.upstreamFailures > 0 &&
+        probe.observedRuns.length === 0 &&
+        !(probe.scheduleWeekdays && probe.scheduleWeekdays.length > 0)
+      ) {
         recordRunsResult("upstream_error");
         span?.recordException(
           sanitizeException(new Error("all run probes failed upstream")),

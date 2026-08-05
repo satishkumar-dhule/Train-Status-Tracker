@@ -10,10 +10,21 @@ import {
  *
  * Trains don't run every calendar day, so a fixed ±N-day window around today
  * is mostly wrong. Instead we probe the data provider across the trailing 3
- * weeks (today-20 .. today) and infer the train's running-weekday pattern,
+ * weeks (today-20 .. today) and derive the train's running-weekday pattern,
  * then return the last 3 run dates up to today plus the next upcoming run.
- * The weekdays, not the raw dates, are the durable signal — a single probe
- * failing (upstream error) or a one-off cancellation must not drop a weekday.
+ *
+ * Two signals are combined:
+ *
+ * 1. The provider's schedule note. On a day the train does NOT run the status
+ *    API answers `success` with a fallback schedule and a message like "This
+ *    train runs only on MON,FRI". That message is the authoritative running
+ *    schedule, and parsing it beats inference — it survives days whose probes
+ *    fail with "wrong start date" (real run days far enough in the past) or
+ *    drop out of the majority vote.
+ *
+ * 2. Probe inference. When no schedule note is seen (e.g. a daily train),
+ *    a weekday is trusted only when it ran on a majority of its probes, so a
+ *    single spurious success on a non-running date cannot pollute the pattern.
  */
 
 /** Days to look back when probing (inclusive of today): a 3-week window. */
@@ -34,12 +45,17 @@ export interface ProbeTrainRunsOptions {
 
 export interface RunWeekdaysResult {
   /**
-   * Day-of-week indices (0 = Sunday .. 6 = Saturday) the train plausibly runs
-   * on. A weekday is trusted only when it ran on a majority of its probes
-   * (more "run" than "norun" outcomes) — a single spurious success from the
-   * provider on a non-running date must not pollute the pattern.
+   * Day-of-week indices (0 = Sunday .. 6 = Saturday) the train runs on. Taken
+   * from the provider's "runs only on …" schedule note when one was seen,
+   * otherwise inferred by majority vote among each weekday's probes.
    */
   weekdays: number[];
+  /**
+   * Weekday list decoded from the provider's schedule note, or null when no
+   * note was seen (e.g. the train runs daily). When non-null it is the
+   * authoritative source for {@link weekdays}.
+   */
+  scheduleWeekdays: number[] | null;
   /** Probe dates (YYYYMMDD, ascending) the train actually ran on. */
   observedRuns: string[];
   /** Number of probes that failed with an upstream error (excluded from both). */
@@ -47,6 +63,39 @@ export interface RunWeekdaysResult {
 }
 
 type ProbeOutcome = "run" | "norun" | "error";
+
+/** 3-letter day names the provider's schedule note uses (SUN..SAT). */
+const WEEKDAY_TOKENS: Record<string, number> = {
+  SUN: 0,
+  MON: 1,
+  TUE: 2,
+  WED: 3,
+  THU: 4,
+  FRI: 5,
+  SAT: 6,
+};
+
+/**
+ * Decode the provider's "This train runs only on MON,FRI" schedule note into
+ * weekday indices (0 = Sunday .. 6 = Saturday). Returns null when the message
+ * is not such a note or any token is unrecognized, so callers can fall back
+ * to probe inference. Whitespace around day tokens is tolerated.
+ */
+export function parseScheduleWeekdays(
+  message: string | null | undefined,
+): number[] | null {
+  if (!message) return null;
+  const match = /runs only on\s+([A-Za-z,\s]+)/i.exec(message);
+  if (!match) return null;
+  const tokens = match[1]
+    .split(",")
+    .map((token) => token.trim().toUpperCase())
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+  const weekdays = tokens.map((token) => WEEKDAY_TOKENS[token]);
+  if (weekdays.some((weekday) => weekday === undefined)) return null;
+  return [...new Set(weekdays)].sort((a, b) => a - b);
+}
 
 function toLocalDateKey(date: Date): string {
   const y = date.getFullYear().toString();
@@ -109,10 +158,12 @@ export async function mapLimited<T, R>(
  * running-weekday pattern. Any thrown error is treated as an unknown probe
  * (counted in `upstreamFailures`) rather than failing the whole discovery.
  *
- * Each weekday is probed ~3 times across the window; it is only counted as a
- * running day when it returned "run" on a majority of its probes, so an
- * occasional provider success on a day the train does not run does not mark
- * that weekday as running.
+ * The provider answers `success` even on days the train does not run, carrying
+ * a fallback schedule whose message reads "This train runs only on MON,FRI".
+ * Such responses are classified as non-runs for that date, and the decoded
+ * note becomes the authoritative weekday set. Absent a note, each weekday is
+ * probed ~3 times across the window and only counts as a running day when it
+ * returned a genuine "run" on a majority of its probes.
  */
 export async function probeTrainRuns(
   trainNumber: string,
@@ -125,24 +176,39 @@ export async function probeTrainRuns(
 
   const dates = buildProbeDates(windowDays, now);
 
-  const outcomes = await mapLimited(dates, concurrency, async (date) => {
-    try {
-      await fetchPaytmTrainStatus(trainNumber, date, { fetchImpl });
-      return { date, outcome: "run" as const };
-    } catch (err) {
-      if (err instanceof PaytmTrainNotFoundError) {
-        return { date, outcome: "norun" as const };
+  const outcomes = await mapLimited(
+    dates,
+    concurrency,
+    async (date): Promise<{ date: string; outcome: ProbeOutcome; scheduleWeekdays: number[] | null }> => {
+      try {
+        const payload = await fetchPaytmTrainStatus(trainNumber, date, {
+          fetchImpl,
+        });
+        const scheduleWeekdays = parseScheduleWeekdays(
+          payload.train_status_message,
+        );
+        if (scheduleWeekdays) {
+          // The provider answered with the fallback schedule: the train does
+          // not run on this date.
+          return { date, outcome: "norun", scheduleWeekdays };
+        }
+        return { date, outcome: "run", scheduleWeekdays: null };
+      } catch (err) {
+        if (err instanceof PaytmTrainNotFoundError) {
+          return { date, outcome: "norun", scheduleWeekdays: null };
+        }
+        if (err instanceof PaytmUpstreamError) {
+          return { date, outcome: "error", scheduleWeekdays: null };
+        }
+        return { date, outcome: "error", scheduleWeekdays: null };
       }
-      if (err instanceof PaytmUpstreamError) {
-        return { date, outcome: "error" as const };
-      }
-      return { date, outcome: "error" as const };
-    }
-  });
+    },
+  );
 
   const runCounts = new Map<number, number>();
   const norunCounts = new Map<number, number>();
   const observedRuns: string[] = [];
+  let scheduleWeekdays: number[] | null = null;
   let upstreamFailures = 0;
 
   const weekdayOf = (apiDate: string): number =>
@@ -152,7 +218,7 @@ export async function probeTrainRuns(
       Number(apiDate.slice(6, 8)),
     ).getDay();
 
-  for (const { date, outcome } of outcomes) {
+  for (const { date, outcome, scheduleWeekdays: parsedWeekdays } of outcomes) {
     if (outcome === "run") {
       observedRuns.push(date);
       const weekday = weekdayOf(date);
@@ -163,18 +229,23 @@ export async function probeTrainRuns(
     } else {
       upstreamFailures += 1;
     }
+    if (parsedWeekdays) scheduleWeekdays ??= parsedWeekdays;
   }
 
-  const weekdays: number[] = [];
-  for (const [weekday, runs] of runCounts) {
-    if (runs > (norunCounts.get(weekday) ?? 0)) {
-      weekdays.push(weekday);
+  let weekdays: number[];
+  if (scheduleWeekdays && scheduleWeekdays.length > 0) {
+    weekdays = scheduleWeekdays;
+  } else {
+    weekdays = [];
+    for (const [weekday, runs] of runCounts) {
+      if (runs > (norunCounts.get(weekday) ?? 0)) {
+        weekdays.push(weekday);
+      }
     }
+    weekdays.sort((a, b) => a - b);
   }
 
-  weekdays.sort((a, b) => a - b);
-
-  return { weekdays, observedRuns, upstreamFailures };
+  return { weekdays, scheduleWeekdays, observedRuns, upstreamFailures };
 }
 
 /**
