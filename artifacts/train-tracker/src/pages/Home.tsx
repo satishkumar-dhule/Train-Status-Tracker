@@ -41,6 +41,7 @@ import { useTrainSearch } from "@/hooks/use-train-search";
 import { DateTabs } from "@/components/status/date-tabs";
 import { DelayBadge } from "@/components/status/delay-badge";
 import { JourneySummary } from "@/components/status/journey-summary";
+import { NextStopCard } from "@/components/status/next-stop-card";
 import { ProgressBar } from "@/components/status/progress-bar";
 import { StationTimeline } from "@/components/status/station-timeline";
 import { StatusMessage } from "@/components/status/status-message";
@@ -70,7 +71,7 @@ function TrainIdentityBlock({
         </h1>
         <Badge
           variant="outline"
-          className="text-muted-foreground border-muted-foreground bg-background font-mono text-sm tracking-widest"
+          className="text-muted-foreground border-primary/40 bg-primary/5 font-mono text-sm tracking-widest"
           data-testid="text-train-name"
         >
           {data.train_name}
@@ -138,41 +139,40 @@ export default function Home() {
   }, [searched, userPickedDate, runs, apiParams.departure_date, setDepartureDate]);
 
   const dates = useMemo(() => {
-    let windowDates: string[]; // ISO date strings
+    const todayApi = toApiDate(getUpcomingDates(1)[0]);
+    let windowIso: string[]; // ISO date strings
+    let latestRunApi: string | null;
+    let nextRunApi: string | null;
 
     if (runs && runs.length > 0) {
-      // Determine the "centre" run: the user-selected date, or the default.
-      const activeIdx = runs.findIndex((r) => r === apiParams.departure_date);
-      const defaultRun = pickDefaultRunDate(runs);
-      const defaultIdx = runs.findIndex((r) => r === defaultRun);
-      const centerIdx =
-        activeIdx >= 0 ? activeIdx : defaultIdx >= 0 ? defaultIdx : 0;
-
-      // Show last 2 runs + current + next 1 run (up to 4 tabs).
-      const start = Math.max(0, centerIdx - 2);
-      const end = Math.min(runs.length - 1, centerIdx + 1);
-      windowDates = runs.slice(start, end + 1).map(fromApiDate);
+      const past = runs.filter((r) => r <= todayApi);
+      const future = runs.filter((r) => r > todayApi);
+      windowIso = [
+        ...past.slice(Math.max(0, past.length - 3)),
+        ...future.slice(0, 1),
+      ].map(fromApiDate);
+      latestRunApi = past.length ? past[past.length - 1] : null;
+      nextRunApi = future[0] ?? null;
     } else {
       // Fallback: 2 past days + today + 1 future day.
-      windowDates = getDateWindow(2, 1);
+      windowIso = getDateWindow(2, 1);
+      latestRunApi = todayApi;
+      nextRunApi = null;
     }
 
-    const todayApi = toApiDate(getUpcomingDates(1)[0]);
-    const tomorrowApi = toApiDate(getUpcomingDates(2)[1]);
-    const yesterdayApi = toApiDate(getDateWindow(1, 0)[0]);
-    return windowDates.map((iso) => {
+    return windowIso.map((iso) => {
       const apiDate = toApiDate(iso);
+      const isLatest = apiDate === latestRunApi;
+      const isNext = apiDate === nextRunApi;
       return {
         iso,
         apiDate,
-        label:
-          apiDate === todayApi
-            ? t("label.today")
-            : apiDate === tomorrowApi
-              ? t("label.tomorrow")
-              : apiDate === yesterdayApi
-                ? t("label.yesterday")
-                : formatShortDate(iso),
+        label: isLatest
+          ? t("label.latestRun")
+          : isNext
+            ? t("label.nextRun")
+            : formatShortDate(iso),
+        sub: isLatest || isNext ? formatShortDate(iso) : undefined,
       };
     });
   }, [t, runs, apiParams.departure_date]);
@@ -219,77 +219,77 @@ export default function Home() {
   if (!searched) {
     return (
       <div className="min-h-[100dvh] flex flex-col bg-background">
-        <div className="h-1 bg-brand" />
-        <header className="bg-card border-b border-border">
-          <div className="max-w-2xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2.5">
-              <span className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <TrainFront className="w-5 h-5 text-primary" />
+        <header className="bg-primary text-primary-foreground h-14 sticky top-0 z-40">
+          <div className="max-w-3xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="shrink-0 w-9 h-9 rounded-lg bg-primary-foreground/15 flex items-center justify-center">
+                <TrainFront className="w-5 h-5 text-primary-foreground" />
               </span>
-              <span className="font-mono font-extrabold text-lg md:text-xl text-foreground uppercase tracking-tight">
+              <span className="font-sans font-semibold text-lg md:text-xl text-primary-foreground truncate">
                 {t("app.title")}
               </span>
             </div>
-            <div className="flex items-center gap-1">
-              <DisplaySettings />
-              <LanguageSwitcher />
+            <div className="flex items-center gap-1 shrink-0">
+              <DisplaySettings className="text-primary-foreground/90 hover:text-primary-foreground hover:bg-primary-foreground/15" />
+              <LanguageSwitcher className="text-primary-foreground" />
             </div>
           </div>
         </header>
 
-        <main className="flex-1 w-full max-w-2xl mx-auto px-4 md:px-6 py-8 md:py-12">
-          <div className="animate-fade-up relative z-10">
-            <div className="bg-[radial-gradient(900px_400px_at_50%_-20%,hsl(var(--brand)/0.06),transparent)] rounded-2xl">
-              <div className="bg-card border border-card-border rounded-2xl shadow-sm">
-                <div className="p-5 sm:p-6 md:p-8 space-y-5">
-                  <div>
-                    <h1
-                      className="font-mono text-2xl md:text-3xl font-bold uppercase tracking-widest text-foreground"
-                      data-testid="search-title"
-                    >
-                      {t("label.searchTitle")}
-                    </h1>
-                    <p className="mt-1.5 font-mono text-xs md:text-sm text-muted-foreground uppercase tracking-widest">
-                      {t("app.tagline")}
-                    </p>
-                  </div>
-                  <div className="rounded-xl overflow-hidden border border-card-border bg-background/50">
-                    <TrainIllustration className="h-12 w-full" />
-                  </div>
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="trainNo"
-                      className="text-sm font-medium text-foreground block"
-                    >
-                      {t("label.trainNumber")}
-                    </label>
-                    <SearchForm
-                      id="trainNo"
-                      value={trainNo}
-                      onValueChange={setTrainNo}
-                      onValidityChange={setTrainValidity}
-                      onSelectedChange={setSelectedTrain}
-                      onSubmit={handleSearchFormSubmit}
-                      autoFocus
-                    />
-                  </div>
-                </div>
-              </div>
+        <main className="flex-1 w-full">
+          <section className="bg-gradient-to-b from-brand-soft/70 via-brand-soft/25 to-background">
+            <div className="max-w-3xl mx-auto px-4 pt-10 md:pt-14 text-center">
+              <h1
+                className="font-sans text-3xl md:text-4xl font-bold text-primary"
+                data-testid="search-title"
+              >
+                {t("label.searchTitle")}
+              </h1>
+              <p className="mt-2 font-sans text-muted-foreground">
+                {t("app.tagline")}
+              </p>
             </div>
-          </div>
+            <TrainIllustration className="mx-auto w-full max-w-2xl -mb-4" />
+          </section>
 
-          {recent.length > 0 && (
-            <section
-              className="mt-6 animate-fade-up"
-              data-testid="recent-searches"
-            >
-              <h2 className="font-mono text-sm font-semibold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
-                <Clock className="w-4 h-4" /> {t("label.recent")}
-              </h2>
-              <RecentChips recent={recent} onSelect={handleSelectRecent} />
-            </section>
-          )}
+          <div className="px-4">
+            <div className="max-w-xl mx-auto bg-card border border-card-border rounded-2xl shadow-lg shadow-primary/5 p-5 md:p-6">
+              <label
+                htmlFor="trainNo"
+                className="block text-sm font-medium text-foreground mb-2"
+              >
+                {t("label.trainNumber")}
+              </label>
+              <SearchForm
+                id="trainNo"
+                value={trainNo}
+                onValueChange={setTrainNo}
+                onValidityChange={setTrainValidity}
+                onSelectedChange={setSelectedTrain}
+                onSubmit={handleSearchFormSubmit}
+                autoFocus
+              />
+            </div>
+
+            {recent.length > 0 && (
+              <section
+                className="mt-6 animate-fade-up"
+                data-testid="recent-searches"
+              >
+                <div className="max-w-xl mx-auto">
+                  <h2 className="font-mono text-sm font-semibold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" /> {t("label.recent")}
+                  </h2>
+                  <RecentChips recent={recent} onSelect={handleSelectRecent} />
+                </div>
+              </section>
+            )}
+          </div>
         </main>
+
+        <footer className="py-6 text-center text-sm text-muted-foreground">
+          Indian Railways · रेल सारथी
+        </footer>
       </div>
     );
   }
@@ -297,14 +297,13 @@ export default function Home() {
   // PAGE 2 — Results
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col">
-      <div className="h-1 bg-brand" />
-      <header className="bg-card border-b border-border sticky top-0 z-50">
-        <div className="max-w-3xl mx-auto px-3 md:px-6 h-12 flex items-center gap-2">
+      <header className="bg-primary h-14 sticky top-0 z-40">
+        <div className="max-w-3xl mx-auto px-3 md:px-6 h-14 flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon"
             onClick={reset}
-            className="shrink-0 text-muted-foreground hover:text-foreground hover:bg-transparent"
+            className="shrink-0 h-11 w-11 text-primary-foreground hover:text-primary-foreground hover:bg-primary-foreground/15"
             aria-label={t("action.abortReturn")}
             data-testid="button-new-search"
           >
@@ -315,13 +314,13 @@ export default function Home() {
             {data ? (
               <>
                 <span
-                  className="font-mono text-lg font-bold text-primary truncate"
+                  className="font-mono text-lg font-semibold text-primary-foreground truncate"
                   data-testid="header-train-number"
                 >
                   {data.train_number}
                 </span>
-                <span className="hidden sm:inline text-xs font-mono text-muted-foreground uppercase tracking-widest truncate">
-                  {data.train_name}
+                <span className="hidden sm:inline text-sm text-primary-foreground/80 truncate">
+                  {data.source_station_code} → {data.destination_station_code}
                 </span>
               </>
             ) : (
@@ -329,16 +328,29 @@ export default function Home() {
                 className="flex items-center gap-2 min-w-0"
                 data-testid="header-train-skeleton"
               >
-                <div className="h-6 w-14 shrink-0 rounded bg-border/50 animate-pulse" />
-                <div className="hidden sm:block h-4 w-40 rounded bg-border/40 animate-pulse" />
+                <div className="h-6 w-14 shrink-0 rounded bg-primary-foreground/20 animate-pulse" />
+                <div className="hidden sm:block h-4 w-40 rounded bg-primary-foreground/20 animate-pulse" />
               </div>
-            )}
-            {data && (
-              <DelayBadge delayMinutes={data.current_delay_minutes ?? null} />
             )}
           </div>
 
-          <div className="hidden md:block w-48 lg:w-56 shrink-0">
+          {data && (
+            <div
+              className="shrink-0"
+              data-testid="status-delay-badge"
+            >
+              <DelayBadge delayMinutes={data.current_delay_minutes ?? null} />
+            </div>
+          )}
+
+          <DisplaySettings className="shrink-0 text-primary-foreground/90 hover:text-primary-foreground hover:bg-primary-foreground/15" />
+          <LanguageSwitcher iconOnly className="shrink-0 text-primary-foreground" />
+        </div>
+      </header>
+
+      <main className="flex-1 w-full">
+        <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+          <div className="hidden md:block">
             <SearchForm
               id="results-search"
               compact
@@ -352,111 +364,107 @@ export default function Home() {
             />
           </div>
 
-          <DisplaySettings className="shrink-0" />
-          <LanguageSwitcher iconOnly className="shrink-0" />
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 md:p-6">
-        {data && (
-          <div
-            className="mb-6 space-y-3 animate-fade-up"
-            data-testid="train-identity-hero"
-          >
-            <TrainIdentityBlock data={data} stations={stations} />
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <div data-testid="status-delay-badge">
-                <DelayBadge delayMinutes={data.current_delay_minutes ?? null} />
-              </div>
-              {isPlaceholderData ? (
-                <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
-                  <Clock className="w-3.5 h-3.5 animate-spin" />
-                  {t("status.refreshing")}
-                </div>
-              ) : (
-                data.last_updated && (
+          {data && (
+            <div
+              className="space-y-3 animate-fade-up bg-card border border-card-border rounded-2xl p-4 md:p-5 shadow-sm"
+              data-testid="train-identity-hero"
+            >
+              <TrainIdentityBlock data={data} stations={stations} />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                {isPlaceholderData ? (
                   <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
-                    <Clock className="w-3.5 h-3.5" />
-                    {t("status.updated", {
-                      time: new Date(data.last_updated).toLocaleTimeString(
-                        [],
-                        { hour: "2-digit", minute: "2-digit" },
-                      ),
-                    })}
+                    <Clock className="w-3.5 h-3.5 animate-spin" />
+                    {t("status.refreshing")}
                   </div>
-                )
+                ) : (
+                  data.last_updated && (
+                    <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
+                      <Clock className="w-3.5 h-3.5" />
+                      {t("status.updated", {
+                        time: new Date(data.last_updated).toLocaleTimeString(
+                          [],
+                          { hour: "2-digit", minute: "2-digit" },
+                        ),
+                      })}
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <DateTabs
+              dates={dates}
+              active={apiParams.departure_date}
+              onChange={selectDate}
+            />
+          </div>
+
+          {data ? (
+            <div
+              key={`${apiParams.train_number}-${apiParams.departure_date}`}
+              className="space-y-4 md:space-y-6 animate-fade-up"
+            >
+              <StatusMessage message={data.status_message ?? null} />
+              <JourneySummary
+                currentStation={currentStation}
+                totalDistance={totalDistance}
+                currentDistance={currentDistance}
+                durationMinutes={durationMinutes}
+                scheduledDeparture={stations[0]?.scheduled_departure ?? null}
+                scheduledArrival={
+                  stations[stations.length - 1]?.scheduled_arrival ?? null
+                }
+                stationCount={stations.length}
+              />
+              <ProgressBar
+                percent={progressPercent}
+                sourceCode={data.source_station_code}
+                destinationCode={data.destination_station_code}
+              />
+              <NextStopCard
+                stations={stations}
+                currentDistance={currentDistance}
+              />
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-mono font-semibold uppercase tracking-widest text-muted-foreground">
+                  {t("label.view")}
+                </span>
+                <ViewToggle value={view} onChange={setView} />
+              </div>
+              {view === "track" ? (
+                <TrackView stations={data.stations} isLiveData={isLiveData} />
+              ) : (
+                <StationTimeline stations={data.stations} />
               )}
             </div>
-          </div>
-        )}
-
-        <div className="mb-6">
-          <DateTabs
-            dates={dates}
-            active={apiParams.departure_date}
-            onChange={selectDate}
-          />
-        </div>
-
-        {data ? (
-          <div
-            key={`${apiParams.train_number}-${apiParams.departure_date}`}
-            className="space-y-4 md:space-y-6 animate-fade-up"
-          >
-            <StatusMessage message={data.status_message ?? null} />
-            <JourneySummary
-              currentStation={currentStation}
-              totalDistance={totalDistance}
-              currentDistance={currentDistance}
-              durationMinutes={durationMinutes}
-              scheduledDeparture={stations[0]?.scheduled_departure ?? null}
-              scheduledArrival={
-                stations[stations.length - 1]?.scheduled_arrival ?? null
-              }
-              stationCount={stations.length}
-            />
-            <ProgressBar
-              percent={progressPercent}
-              sourceCode={data.source_station_code}
-              destinationCode={data.destination_station_code}
-            />
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-mono font-semibold uppercase tracking-widest text-muted-foreground">
-                {t("label.view")}
-              </span>
-              <ViewToggle value={view} onChange={setView} />
-            </div>
-            {view === "track" ? (
-              <TrackView stations={data.stations} isLiveData={isLiveData} />
-            ) : (
-              <StationTimeline stations={data.stations} />
-            )}
-          </div>
-        ) : isLoading ? (
-          <StatusSkeleton />
-        ) : isError ? (
-          <div
-            className="animate-fade-up bg-destructive/10 border border-destructive rounded-xl p-5 flex flex-col items-center text-center space-y-4"
-            data-testid="status-error"
-          >
-            <AlertTriangle className="w-10 h-10 text-destructive mb-2" />
-            <h2 className="font-mono text-lg text-destructive font-bold uppercase tracking-widest">
-              {t("error.signalLost")}
-            </h2>
-            <p className="font-mono text-muted-foreground text-sm max-w-md">
-              {t(errorKey)}
-            </p>
-            <Button
-              onClick={handleRetry}
-              className="font-mono uppercase tracking-widest mt-2"
-              data-testid="status-retry"
+          ) : isLoading ? (
+            <StatusSkeleton />
+          ) : isError ? (
+            <div
+              className="animate-fade-up bg-destructive/10 border border-destructive/30 rounded-xl p-5 flex flex-col items-center text-center space-y-4"
+              data-testid="status-error"
             >
-              {t("action.retry")}
-            </Button>
-          </div>
-        ) : isFetching ? (
-          <StatusSkeleton />
-        ) : null}
+              <AlertTriangle className="w-10 h-10 text-destructive mb-2" />
+              <h2 className="font-mono text-lg text-destructive font-bold uppercase tracking-widest">
+                {t("error.signalLost")}
+              </h2>
+              <p className="font-mono text-muted-foreground text-sm max-w-md">
+                {t(errorKey)}
+              </p>
+              <Button
+                onClick={handleRetry}
+                className="font-mono uppercase tracking-widest mt-2"
+                data-testid="status-retry"
+              >
+                {t("action.retry")}
+              </Button>
+            </div>
+          ) : isFetching ? (
+            <StatusSkeleton />
+          ) : null}
+        </div>
       </main>
     </div>
   );

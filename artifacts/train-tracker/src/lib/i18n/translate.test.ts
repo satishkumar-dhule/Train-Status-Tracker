@@ -14,7 +14,7 @@ describe("translate", () => {
 
   it("interpolates numeric params", () => {
     expect(translate(DICTIONARY, "en", "status.lateMinutes", { n: 42 })).toBe(
-      "42M late",
+      "+42 min",
     );
   });
 
@@ -26,12 +26,12 @@ describe("translate", () => {
 
   it("leaves unknown params untouched", () => {
     expect(translate(DICTIONARY, "en", "status.lateMinutes", { x: 1 })).toBe(
-      "{n}M late",
+      "+{n} min",
     );
   });
 
   it("returns the translated string for languages with complete dictionaries", () => {
-    expect(translate(DICTIONARY, "gu", "app.title")).toBe("ટર્મિનલ.ટ્રેક");
+    expect(translate(DICTIONARY, "gu", "app.title")).toBe("રેલ સારથી");
     expect(translate(DICTIONARY, "mr", "status.onTime")).toBe("वेळेवर");
   });
 

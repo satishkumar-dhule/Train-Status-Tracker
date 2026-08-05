@@ -8,17 +8,14 @@ export function DelayBadge({ delayMinutes }: { delayMinutes: number | null }) {
 
   if (delayMinutes > 0) {
     return (
-      <Badge className="text-sm h-7 px-2.5 border-warning bg-warning text-warning-foreground shrink-0 tracking-widest">
+      <Badge className="h-6 px-2.5 rounded-full text-xs font-semibold bg-warning text-warning-foreground font-mono normal-case shrink-0">
         {t("status.lateMinutes", { n: delayMinutes })}
       </Badge>
     );
   }
 
   return (
-    <Badge
-      variant="outline"
-      className="text-sm h-7 px-2.5 border-success text-success shrink-0 tracking-widest bg-success/5"
-    >
+    <Badge className="h-6 px-2.5 rounded-full text-xs font-semibold bg-success text-success-foreground font-sans normal-case shrink-0">
       {t("status.onTime")}
     </Badge>
   );

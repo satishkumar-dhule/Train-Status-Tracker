@@ -13,8 +13,9 @@ describe("StatusMessage", () => {
     const msg = screen.getByTestId("status-message");
     expect(msg).toBeInTheDocument();
     expect(msg.textContent).toBe("Train is running on time");
-    expect(msg).toHaveClass("uppercase");
-    expect(msg.closest(".bg-primary\\/5")).not.toBeNull();
+    expect(msg).toHaveClass("text-sm");
+    expect(msg).toHaveClass("text-muted-foreground");
+    expect(msg.querySelector("svg")).not.toBeNull();
   });
 
   it("renders nothing when message is null", () => {

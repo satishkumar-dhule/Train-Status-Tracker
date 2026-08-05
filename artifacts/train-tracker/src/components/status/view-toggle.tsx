@@ -19,7 +19,7 @@ export function ViewToggle({
     <div
       role="group"
       aria-label={t("label.view")}
-      className="flex gap-1 p-1 rounded-lg border border-border bg-card"
+      className="inline-flex rounded-full bg-muted p-1 gap-1"
       data-testid="view-toggle"
     >
       {options.map((option) => {
@@ -31,10 +31,10 @@ export function ViewToggle({
             onClick={() => onChange(option.value)}
             aria-pressed={active}
             className={cn(
-              "shrink-0 rounded-md border px-3.5 h-10 inline-flex items-center font-mono text-xs font-semibold uppercase tracking-widest transition-all",
+              "h-9 px-4 rounded-full font-sans text-sm font-medium inline-flex items-center gap-1.5 transition-colors",
               active
-                ? "border-primary bg-brand text-primary-foreground"
-                : "border-transparent bg-transparent text-muted-foreground hover:text-foreground",
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
             )}
             data-testid={`view-${option.value}`}
           >

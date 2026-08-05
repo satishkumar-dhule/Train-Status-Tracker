@@ -33,6 +33,24 @@ describe("DateTabs", () => {
     expect(screen.getByTestId("tab-date-20260807")).toHaveAttribute("title", "2026-08-07");
   });
 
+  it("renders the sub-line for tabs carrying a sub and omits it otherwise", () => {
+    const subDates = [
+      { iso: "2026-08-05", apiDate: "20260805", label: "Latest run", sub: "7 AUG" },
+      { iso: "2026-08-06", apiDate: "20260806", label: "Next run", sub: "8 AUG" },
+      { iso: "2026-08-07", apiDate: "20260807", label: "7 Aug" },
+    ];
+    render(
+      <I18nProvider>
+        <DateTabs dates={subDates} active="20260805" onChange={() => {}} />
+      </I18nProvider>
+    );
+
+    expect(screen.getByTestId("tab-date-20260805")).toHaveTextContent("7 AUG");
+    expect(screen.getByTestId("tab-date-20260806")).toHaveTextContent("8 AUG");
+    expect(screen.getByTestId("tab-date-20260807").textContent).not.toContain("7 AUG");
+    expect(screen.getByTestId("tab-date-20260807").textContent).not.toContain("8 AUG");
+  });
+
   it("marks only the active tab as pressed", () => {
     renderTabs({ active: "20260806" });
     expect(screen.getByTestId("tab-date-20260806")).toHaveAttribute("aria-pressed", "true");

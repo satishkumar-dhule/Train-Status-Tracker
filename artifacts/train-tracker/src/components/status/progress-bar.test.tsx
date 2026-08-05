@@ -13,15 +13,19 @@ describe("ProgressBar", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders the fill with a percent width and source → dest labels", () => {
+  it("renders the two-sided journey progress strip", () => {
     render(
       <I18nProvider>
         <ProgressBar percent={40} sourceCode="ADI" destinationCode="BCT" />
       </I18nProvider>
     );
-    const fill = screen.getByTestId("progress-bar");
+    expect(screen.getByTestId("progress-bar")).toBeInTheDocument();
+    const fill = screen.getByTestId("progress-bar-fill");
     expect(fill).toHaveStyle({ width: "40%" });
-    expect(screen.getByText("40%")).toBeInTheDocument();
-    expect(screen.getByText("ADI → BCT")).toBeInTheDocument();
+    expect(screen.getByText("40% of journey completed")).toBeInTheDocument();
+    expect(screen.getByText("SOURCE")).toBeInTheDocument();
+    expect(screen.getByText("ADI")).toBeInTheDocument();
+    expect(screen.getByText("DESTINATION")).toBeInTheDocument();
+    expect(screen.getByText("BCT")).toBeInTheDocument();
   });
 });

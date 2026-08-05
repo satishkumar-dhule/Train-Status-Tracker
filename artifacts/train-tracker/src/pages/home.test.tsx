@@ -411,7 +411,7 @@ describe("Home", () => {
     expect(screen.queryByTestId("track-view")).not.toBeInTheDocument();
   });
 
-  it("shows the 7 date tabs (3 past, today, 3 ahead) and refetches when a later date is selected", async () => {
+  it("shows the fallback date tabs (2 past, today, 1 ahead) and refetches when a later date is selected", async () => {
     const user = userEvent.setup();
     mockSuccess();
     renderHome();
@@ -419,15 +419,16 @@ describe("Home", () => {
     await searchFor(user, "22943");
 
     const tabs = screen.getAllByTestId(/^tab-date-/);
-    expect(tabs).toHaveLength(7);
-    expect(screen.getByText("Today")).toBeInTheDocument();
-    expect(screen.getByText("Tomorrow")).toBeInTheDocument();
-    expect(screen.getByText("Yesterday")).toBeInTheDocument();
+    expect(tabs).toHaveLength(4);
+    expect(screen.getByText("Latest run")).toBeInTheDocument();
+    expect(screen.queryByText("Today")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tomorrow")).not.toBeInTheDocument();
+    expect(screen.queryByText("Yesterday")).not.toBeInTheDocument();
     expect(
-      screen.getByTestId(`tab-date-${toApiDate(getDateWindow(3, 3)[0])}`),
+      screen.getByTestId(`tab-date-${toApiDate(getDateWindow(2, 1)[0])}`),
     ).toBeInTheDocument();
 
-    const tomorrowApi = toApiDate(getDateWindow(3, 3)[4]);
+    const tomorrowApi = toApiDate(getDateWindow(2, 1)[3]);
     await user.click(screen.getByTestId(`tab-date-${tomorrowApi}`));
 
     expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({

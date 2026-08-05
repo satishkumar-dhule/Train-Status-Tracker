@@ -15,8 +15,8 @@ describe("StatusSkeleton", () => {
     expect(container.querySelectorAll(".animate-pulse-fast.flex")).toHaveLength(5);
   });
 
-  it("defaults to 8 rows", () => {
+  it("defaults to 5 rows", () => {
     const { container } = render(<StatusSkeleton />);
-    expect(container.querySelectorAll(".animate-pulse-fast.flex")).toHaveLength(8);
+    expect(container.querySelectorAll(".animate-pulse-fast.flex")).toHaveLength(5);
   });
 });

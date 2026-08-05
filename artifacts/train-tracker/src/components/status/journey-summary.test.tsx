@@ -39,6 +39,7 @@ describe("JourneySummary", () => {
     expect(grid).toBeInTheDocument();
     expect(screen.getByText("Ahmedabad Junction")).toBeInTheDocument();
     expect(screen.getByText("[ADI]")).toBeInTheDocument();
+    expect(screen.getByText("Distance")).toBeInTheDocument();
     expect(screen.getByText("100/250")).toBeInTheDocument();
     expect(screen.getByText("8h 30m")).toBeInTheDocument();
     expect(screen.getByText("22:00 → 06:30")).toBeInTheDocument();

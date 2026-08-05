@@ -7,20 +7,31 @@ function Stat({
   label,
   value,
   sub,
+  hero = false,
 }: {
   label: string;
   value: ReactNode;
   sub?: string;
+  hero?: boolean;
 }) {
+  if (hero) {
+    return (
+      <div className="relative overflow-hidden rounded-xl bg-primary p-3 min-w-0">
+        <div className="text-xs uppercase tracking-widest text-primary-foreground/70 font-mono truncate">
+          {label}
+        </div>
+        <div className="mt-1 font-sans font-semibold text-lg text-white truncate">{value}</div>
+        {sub && <div className="mt-0.5 font-mono text-sm text-brand truncate">{sub}</div>}
+      </div>
+    );
+  }
   return (
-    <div className="rounded-lg border border-card-border bg-background/60 p-3 min-w-0">
-      <div className="text-xs uppercase tracking-widest text-muted-foreground font-semibold truncate">
+    <div className="rounded-xl border border-card-border bg-card p-3 min-w-0">
+      <div className="text-xs uppercase tracking-widest text-muted-foreground font-mono truncate">
         {label}
       </div>
-      <div className="mt-1 font-mono font-bold text-sm md:text-base text-foreground truncate">
-        {value}
-      </div>
-      {sub && <div className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</div>}
+      <div className="mt-1 font-mono font-bold text-base text-primary truncate">{value}</div>
+      {sub && <div className="mt-0.5 text-xs text-muted-foreground truncate">{sub}</div>}
     </div>
   );
 }
@@ -53,15 +64,15 @@ export function JourneySummary({
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="journey-summary">
-      {/* Current station spans full width on mobile for readability */}
       <div className="col-span-2 md:col-span-1">
         <Stat
+          hero
           label={t("label.currentStation")}
           value={currentStation?.station_name ?? "--"}
           sub={currentStation?.station_code ? `[${currentStation.station_code}]` : undefined}
         />
       </div>
-      <Stat label={t("meta.kilometers", { n: "" })} value={distanceValue} />
+      <Stat label={t("label.distance")} value={distanceValue} />
       <Stat
         label={t("label.duration")}
         value={durationMinutes != null ? formatDuration(durationMinutes) : "--"}

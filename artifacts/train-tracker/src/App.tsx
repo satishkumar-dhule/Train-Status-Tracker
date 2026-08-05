@@ -1,23 +1,26 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Route, Switch, Router as WouterRouter } from 'wouter';
-import { I18nProvider, useI18n } from './lib/i18n';
+import { Route, Switch, Router as WouterRouter, Link } from 'wouter';
+import { I18nProvider } from './lib/i18n';
 import { RecentSearchesProvider } from './context/recent-searches';
 import Home from './pages/Home';
 
 const queryClient = new QueryClient();
 
 function NotFound() {
-  const { t } = useI18n();
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background text-foreground font-mono">
-      <div className="text-center border border-border p-8 rounded-md bg-card">
-        <h1 className="text-4xl font-bold text-destructive mb-2 uppercase tracking-widest">
-          {t('error404.title')}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground uppercase tracking-widest">
-          {t('error404.message')}
-        </p>
-      </div>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-center">
+      <p className="font-mono text-6xl font-bold leading-none text-primary">
+        404
+      </p>
+      <h1 className="font-sans text-lg font-semibold text-foreground">
+        Page not found
+      </h1>
+      <Link
+        href="/"
+        className="inline-flex h-10 items-center rounded-full bg-brand px-4 font-sans text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-strong"
+      >
+        Back home
+      </Link>
     </div>
   );
 }

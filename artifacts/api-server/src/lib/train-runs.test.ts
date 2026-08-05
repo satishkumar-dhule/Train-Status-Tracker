@@ -106,6 +106,44 @@ describe("probeTrainRuns", () => {
     expect(result.upstreamFailures).toBe(3);
   });
 
+  it("excludes a weekday that ran on only a minority of its probes", async () => {
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      const date = new URL(url).searchParams.get("departure_date") ?? "";
+      const weekday = weekdayOf(date);
+      if (weekday === 1) return successPayload();
+      if (weekday === 2 && date === "20260728") return successPayload();
+      return notFoundPayload();
+    });
+
+    const result = await probeTrainRuns("22943", { fetchImpl: fetchSpy, now: NOW });
+
+    expect(result.weekdays).toEqual([1]);
+    expect(result.observedRuns).toEqual([
+      "20260720",
+      "20260727",
+      "20260728",
+      "20260803",
+    ]);
+    expect(result.upstreamFailures).toBe(0);
+  });
+
+  it("keeps a weekday whose runs outnumber its not-run probes", async () => {
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      const date = new URL(url).searchParams.get("departure_date") ?? "";
+      const weekday = weekdayOf(date);
+      if (weekday === 4) return successPayload();
+      if (weekday === 5 && date !== "20260725") return successPayload();
+      return notFoundPayload();
+    });
+
+    const result = await probeTrainRuns("22943", { fetchImpl: fetchSpy, now: NOW });
+
+    expect(result.weekdays).toEqual([4, 5]);
+    expect(result.upstreamFailures).toBe(0);
+  });
+
   it("records no runs when every probe is not-found", async () => {
     const fetchSpy = vi.fn(async () => notFoundPayload());
 

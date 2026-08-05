@@ -64,26 +64,23 @@ function renderTrack() {
 }
 
 describe("TrackView", () => {
-  it("renders the serpentine ribbon with a node for every station and the train", () => {
+  it("renders the railway schematic with rails, a node for every station and the train", () => {
     renderTrack();
     expect(screen.getByTestId("track-view")).toBeInTheDocument();
-    expect(screen.getByTestId("track-path")).toBeInTheDocument();
-    expect(screen.getByTestId("track-line-progress")).toBeInTheDocument();
+    expect(screen.getByTestId("track-rail-top")).toBeInTheDocument();
+    expect(screen.getByTestId("track-rail-bottom")).toBeInTheDocument();
+    expect(screen.getByTestId("track-flow")).toBeInTheDocument();
     expect(screen.getByTestId("track-train")).toBeInTheDocument();
     expect(screen.getByTestId("track-station-ADI")).toBeInTheDocument();
     expect(screen.getByTestId("track-station-BRC")).toBeInTheDocument();
     expect(screen.getByTestId("track-station-ST")).toBeInTheDocument();
   });
 
-  it("shows every station name on the ribbon", () => {
+  it("labels every station node with its code", () => {
     renderTrack();
-    expect(screen.getByTestId("track-label-ADI").textContent).toBe(
-      "Ahmedabad Junction",
-    );
-    expect(screen.getByTestId("track-label-BRC").textContent).toBe(
-      "Vadodara Junction",
-    );
-    expect(screen.getByTestId("track-label-ST").textContent).toBe("Surat");
+    expect(screen.getByTestId("track-label-ADI").textContent).toBe("ADI");
+    expect(screen.getByTestId("track-label-BRC").textContent).toBe("BRC");
+    expect(screen.getByTestId("track-label-ST").textContent).toBe("ST");
   });
 
   it("adds a readable current-station strip for mobile", () => {
@@ -91,17 +88,21 @@ describe("TrackView", () => {
     const strip = screen.getByTestId("track-current-strip");
     expect(strip).toHaveTextContent("Vadodara Junction");
     expect(strip).toHaveTextContent("[BRC]");
+    expect(strip).toHaveTextContent("+20 min");
   });
 
   it("marks the current station with the brand pulse and passed stations as muted", () => {
     renderTrack();
     const current = screen.getByTestId("track-station-BRC");
-    expect(current.querySelector(".fill-brand")).not.toBeNull();
-    expect(current.querySelector(".fill-brand\\/20")).not.toBeNull();
+    expect(current.querySelector(".bg-brand")).not.toBeNull();
+    expect(current.querySelector(".ring-brand\\/20")).not.toBeNull();
+    expect(current.querySelector(".animate-pulse-fast")).not.toBeNull();
 
     const passed = screen.getByTestId("track-station-ADI");
-    expect(passed.querySelector(".fill-muted-foreground\\/50")).not.toBeNull();
-    expect(passed.querySelector(".fill-brand")).toBeNull();
+    expect(
+      passed.querySelector(".bg-muted-foreground\\/50"),
+    ).not.toBeNull();
+    expect(passed.querySelector(".bg-brand")).toBeNull();
   });
 
   it("lays stations out across multiple serpentine rows for long routes", () => {
@@ -128,15 +129,16 @@ describe("TrackView", () => {
   it("keeps the train between the current and next station and shows the live badge", () => {
     renderTrack();
     const train = screen.getByTestId("track-train");
-    const transform = train.getAttribute("transform") ?? "";
-    const match = transform.match(/translate\(([\d.]+) ([\d.]+)\)/);
-    expect(match).not.toBeNull();
-    const x = Number(match?.[1]);
-    const stNode = screen.getByTestId("track-station-ST");
-    const stTransform = stNode.getAttribute("transform") ?? "";
-    const stMatch = stTransform.match(/translate\(([\d.]+) ([\d.]+)\)/);
-    const stX = Number(stMatch?.[1]);
-    expect(x).toBeLessThan(stX);
+    const left = Number.parseFloat(train.style.left);
+    expect(Number.isFinite(left)).toBe(true);
+
+    const current = screen.getByTestId("track-station-BRC");
+    const next = screen.getByTestId("track-station-ST");
+    const currentLeft = Number.parseFloat(current.style.left);
+    const nextLeft = Number.parseFloat(next.style.left);
+    expect(left).toBeGreaterThan(currentLeft);
+    expect(left).toBeLessThan(nextLeft);
+
     expect(screen.getByText("Live")).toBeInTheDocument();
   });
 
@@ -150,11 +152,12 @@ describe("TrackView", () => {
     expect(screen.queryByText("Live")).not.toBeInTheDocument();
   });
 
-  it("shows the current station name as the prominent label", () => {
+  it("marks the current station label as prominent", () => {
     renderTrack();
-    expect(screen.getByTestId("track-label-BRC")).toHaveTextContent(
-      "Vadodara Junction",
-    );
+    const label = screen.getByTestId("track-label-BRC");
+    expect(label).toHaveTextContent("BRC");
+    expect(label.className).toContain("text-primary");
+    expect(label.className).toContain("font-bold");
   });
 
   it("provides a tap target on every station node", () => {
@@ -172,7 +175,7 @@ describe("TrackView", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent("Vadodara Junction");
-    expect(tooltip).toHaveTextContent("20M late");
+    expect(tooltip).toHaveTextContent("+20 min");
     expect(tooltip).toHaveTextContent("PF 3");
     expect(tooltip).toHaveTextContent("100KM");
   });
@@ -184,5 +187,26 @@ describe("TrackView", () => {
       </I18nProvider>,
     );
     expect(container.firstChild).toBeNull();
+  });
+
+  it("shows a completed-run strip with the final delay for a past run", () => {
+    const completedStations: StationStatus[] = stations.map((station, index) => ({
+      ...station,
+      has_departed: true,
+      is_current: false,
+      delay_minutes: index === stations.length - 1 ? 15 : station.delay_minutes,
+    }));
+    render(
+      <I18nProvider>
+        <TrackView stations={completedStations} now={now} />
+      </I18nProvider>,
+    );
+
+    expect(
+      screen.getByTestId("track-completed-strip"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("track-current-strip")).not.toBeInTheDocument();
+    expect(screen.getByText("+15 min")).toBeInTheDocument();
+    expect(screen.getByText("COMPLETED")).toBeInTheDocument();
   });
 });

@@ -1,117 +1,163 @@
-function TrainSvg() {
+import { cn } from "@/lib/utils";
+
+function Railbed() {
   return (
-    <svg
-      viewBox="0 0 600 120"
-      width="600"
-      height="120"
-      className="h-full w-auto shrink-0"
-      preserveAspectRatio="xMidYMax meet"
-    >
-      <defs>
-        <linearGradient id="locoBody" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#1a4fa0" />
-          <stop offset="100%" stopColor="#123a7c" />
-        </linearGradient>
-        <linearGradient id="coachBody" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#fdf8ee" />
-          <stop offset="100%" stopColor="#f1e8d5" />
-        </linearGradient>
-      </defs>
-
-      {/* Rail line */}
-      <rect x="0" y="103" width="600" height="3" fill="#8a8578" opacity="0.5" />
-      {Array.from({ length: 40 }).map((_, i) => (
-        <rect key={i} x={i * 16} y="106" width="8" height="4" fill="#8a8578" opacity="0.4" />
+    <g className="train-rail">
+      <rect
+        x="0"
+        y="111"
+        width="800"
+        height="6"
+        fill="var(--color-foreground)"
+        opacity="0.05"
+      />
+      {Array.from({ length: 34 }).map((_, i) => (
+        <rect
+          key={i}
+          x={i * 24}
+          y="106"
+          width="11"
+          height="3"
+          rx="1"
+          fill="var(--color-muted)"
+          opacity="0.85"
+        />
       ))}
+      <rect x="0" y="103" width="800" height="2" fill="var(--color-muted-foreground)" opacity="0.55" />
+      <rect x="0" y="106" width="800" height="2" fill="var(--color-muted-foreground)" opacity="0.55" />
+    </g>
+  );
+}
 
-      {/* Coach 3 */}
-      <g transform="translate(360,0)">
-        <rect x="0" y="52" width="118" height="42" rx="6" fill="url(#coachBody)" stroke="#c9bfa0" strokeWidth="1" />
-        <rect x="0" y="60" width="118" height="8" fill="#F47B20" />
-        <rect x="0" y="80" width="118" height="4" fill="#1a4fa0" />
-        {[10, 30, 50, 70, 90].map((x) => (
-          <rect key={x} x={x} y="70" width="12" height="10" rx="2" fill="#1a4fa0" opacity="0.85" />
-        ))}
-        <rect x="10" y="92" width="30" height="6" rx="2" fill="#3a3a3a" />
-        <rect x="78" y="92" width="30" height="6" rx="2" fill="#3a3a3a" />
-        <circle cx="20" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="30" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="88" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="98" cy="100" r="6" fill="#2b2b2b" />
+function Coach({ x }: { x: number }) {
+  return (
+    <g transform={`translate(${x} 0)`}>
+      <path
+        d="M0 94 L0 52 Q0 50 2 50 L126 52 Q130 53 130 55 L130 94 Z"
+        fill="var(--color-muted-foreground)"
+        stroke="var(--color-muted-foreground)"
+        strokeOpacity="0.5"
+        strokeWidth="1"
+      />
+      <rect x="0" y="70" width="130" height="6" fill="var(--color-brand)" />
+      <rect x="0" y="88" width="130" height="6" fill="var(--color-primary)" />
+      {[8, 28, 48, 68, 88, 108].map((wx) => (
+        <rect
+          key={wx}
+          x={wx}
+          y="58"
+          width="14"
+          height="8"
+          rx="2"
+          fill="var(--color-muted)"
+          opacity="0.95"
+        />
+      ))}
+      {[18, 30, 86, 98].map((cx) => (
+        <g key={cx}>
+          <circle cx={cx} cy="100" r="6" fill="var(--color-foreground)" />
+          <circle cx={cx} cy="100" r="2.2" fill="var(--color-card)" />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+function Wap7Loco() {
+  return (
+    <g>
+      <g stroke="var(--color-muted-foreground)" strokeWidth="2" strokeLinecap="round">
+        <rect x="654" y="43" width="12" height="3" fill="var(--color-muted-foreground)" stroke="none" />
+        <line x1="660" y1="43" x2="651" y2="27" />
+        <line x1="660" y1="43" x2="673" y2="27" />
+        <line x1="648" y1="27" x2="676" y2="27" strokeWidth="2.5" />
+      </g>
+      <rect x="590" y="42" width="14" height="3" rx="1.5" fill="var(--color-muted-foreground)" opacity="0.7" />
+      <rect x="612" y="43" width="10" height="2.5" rx="1.25" fill="var(--color-muted-foreground)" opacity="0.6" />
+
+      <path
+        d="M580 94 L580 50 Q580 46 586 46 L690 46 Q700 46 706 40 L732 40 Q748 40 750 54 L750 94 Z"
+        fill="var(--color-primary)"
+        stroke="var(--color-foreground)"
+        strokeOpacity="0.25"
+        strokeWidth="1"
+      />
+      <rect x="580" y="55" width="116" height="4" fill="var(--color-card)" opacity="0.85" />
+      <rect x="580" y="72" width="170" height="6" fill="var(--color-brand)" />
+      <rect x="580" y="88" width="170" height="6" fill="var(--color-foreground)" opacity="0.75" />
+
+      <rect x="604" y="52" width="16" height="9" rx="2" fill="var(--color-card)" opacity="0.95" />
+      <rect x="646" y="52" width="16" height="9" rx="2" fill="var(--color-card)" opacity="0.95" />
+      <rect x="726" y="54" width="22" height="12" rx="3" fill="var(--color-card)" opacity="0.92" />
+
+      <rect x="712" y="66" width="14" height="6" rx="1" fill="var(--color-card)" opacity="0.9" />
+      <circle cx="745" cy="70" r="4" fill="var(--color-warning)" stroke="var(--color-card)" strokeOpacity="0.5" strokeWidth="1" />
+      <circle cx="743" cy="85" r="4" fill="var(--color-card)" opacity="0.9" />
+
+      <rect x="750" y="78" width="3" height="7" fill="var(--color-muted-foreground)" />
+      <rect x="750" y="87" width="3" height="7" fill="var(--color-muted-foreground)" />
+
+      {[596, 636, 676].map((cx) => (
+        <g key={cx}>
+          <circle cx={cx} cy="100" r="6" fill="var(--color-foreground)" />
+          <circle cx={cx} cy="100" r="2.2" fill="var(--color-card)" />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+function TrainCrop() {
+  return (
+    <g>
+      <g stroke="var(--color-muted-foreground)" strokeLinecap="round">
+        <line x1="0" y1="46" x2="760" y2="46" strokeWidth="1" opacity="0.12" />
+        <line x1="20" y1="40" x2="140" y2="40" strokeWidth="2" opacity="0.3" />
+        <line x1="40" y1="58" x2="150" y2="58" strokeWidth="2" opacity="0.3" />
+        <line x1="0" y1="76" x2="92" y2="76" strokeWidth="1.5" opacity="0.3" />
+        <line x1="30" y1="88" x2="130" y2="88" strokeWidth="1.5" opacity="0.2" />
+        <line x1="10" y1="99" x2="70" y2="99" strokeWidth="1.5" opacity="0.15" />
+        <line x1="560" y1="34" x2="700" y2="34" strokeWidth="2" opacity="0.18" />
+        <line x1="752" y1="56" x2="760" y2="56" strokeWidth="1.5" opacity="0.2" />
+        <line x1="752" y1="84" x2="760" y2="84" strokeWidth="1.5" opacity="0.2" />
       </g>
 
-      {/* Coach 2 */}
-      <g transform="translate(232,0)">
-        <rect x="0" y="52" width="118" height="42" rx="6" fill="url(#coachBody)" stroke="#c9bfa0" strokeWidth="1" />
-        <rect x="0" y="60" width="118" height="8" fill="#F47B20" />
-        <rect x="0" y="80" width="118" height="4" fill="#1a4fa0" />
-        {[10, 30, 50, 70, 90].map((x) => (
-          <rect key={x} x={x} y="70" width="12" height="10" rx="2" fill="#1a4fa0" opacity="0.85" />
-        ))}
-        <rect x="10" y="92" width="30" height="6" rx="2" fill="#3a3a3a" />
-        <rect x="78" y="92" width="30" height="6" rx="2" fill="#3a3a3a" />
-        <circle cx="20" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="30" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="88" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="98" cy="100" r="6" fill="#2b2b2b" />
-      </g>
+      <Coach x={430} />
+      <Coach x={290} />
+      <Coach x={150} />
 
-      {/* Coach 1 */}
-      <g transform="translate(104,0)">
-        <rect x="0" y="52" width="118" height="42" rx="6" fill="url(#coachBody)" stroke="#c9bfa0" strokeWidth="1" />
-        <rect x="0" y="60" width="118" height="8" fill="#F47B20" />
-        <rect x="0" y="80" width="118" height="4" fill="#1a4fa0" />
-        {[10, 30, 50, 70, 90].map((x) => (
-          <rect key={x} x={x} y="70" width="12" height="10" rx="2" fill="#1a4fa0" opacity="0.85" />
-        ))}
-        <rect x="10" y="92" width="30" height="6" rx="2" fill="#3a3a3a" />
-        <rect x="78" y="92" width="30" height="6" rx="2" fill="#3a3a3a" />
-        <circle cx="20" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="30" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="88" cy="100" r="6" fill="#2b2b2b" />
-        <circle cx="98" cy="100" r="6" fill="#2b2b2b" />
-      </g>
+      <rect x="562" y="80" width="16" height="4" rx="1" fill="var(--color-muted-foreground)" opacity="0.6" />
+      <rect x="421" y="80" width="8" height="4" rx="1" fill="var(--color-muted-foreground)" opacity="0.6" />
+      <rect x="281" y="80" width="8" height="4" rx="1" fill="var(--color-muted-foreground)" opacity="0.6" />
 
-      {/* Locomotive WAP-7 */}
-      <g transform="translate(0,0)">
-        <line x1="30" y1="38" x2="42" y2="18" stroke="#2b2b2b" strokeWidth="2" />
-        <line x1="42" y1="18" x2="54" y2="38" stroke="#2b2b2b" strokeWidth="2" />
-        <line x1="54" y1="38" x2="66" y2="18" stroke="#2b2b2b" strokeWidth="2" />
-        <line x1="66" y1="18" x2="78" y2="38" stroke="#2b2b2b" strokeWidth="2" />
-        <rect x="40" y="16" width="16" height="3" fill="#2b2b2b" />
+      <Wap7Loco />
 
-        <path d="M8 94 L8 56 Q8 46 20 46 L96 46 L104 60 L104 94 Z" fill="url(#locoBody)" stroke="#0e2f66" strokeWidth="1" />
-        <rect x="8" y="64" width="96" height="7" fill="#fdf3df" />
-        <rect x="8" y="72" width="96" height="4" fill="#F47B20" />
-        <path d="M96 46 L104 60 L104 46 Z" fill="#0e2f66" />
-        <rect x="76" y="50" width="18" height="12" rx="2" fill="#bcd6f0" opacity="0.9" />
-        <rect x="18" y="52" width="16" height="10" rx="2" fill="#bcd6f0" opacity="0.8" />
-        <circle cx="100" cy="82" r="3.5" fill="#ffe08a" stroke="#8a5a00" strokeWidth="0.5" />
-        <rect x="20" y="80" width="26" height="9" rx="1.5" fill="#fdf3df" />
-        <text x="33" y="87" fontSize="6" fontFamily="monospace" fill="#1a4fa0" textAnchor="middle" fontWeight="700">
-          30276
-        </text>
-        <rect x="14" y="90" width="34" height="7" rx="2" fill="#222" />
-        <rect x="60" y="90" width="34" height="7" rx="2" fill="#222" />
-        <circle cx="22" cy="100" r="7" fill="#1c1c1c" stroke="#444" strokeWidth="1" />
-        <circle cx="40" cy="100" r="7" fill="#1c1c1c" stroke="#444" strokeWidth="1" />
-        <circle cx="68" cy="100" r="7" fill="#1c1c1c" stroke="#444" strokeWidth="1" />
-        <circle cx="86" cy="100" r="7" fill="#1c1c1c" stroke="#444" strokeWidth="1" />
-      </g>
-    </svg>
+      <path d="M743 70 L760 63 L760 77 Z" fill="var(--color-warning)" opacity="0.14" />
+    </g>
   );
 }
 
 export function TrainIllustration({ className }: { className?: string }) {
   return (
-    <div className={className} style={{ overflow: "hidden" }} aria-hidden="true">
-      <div
-        className="flex h-full items-end"
-        style={{ width: "max-content", animation: "train-move 8s linear infinite" }}
+    <svg
+      viewBox="0 0 800 120"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+      className={cn("train-illustration block w-full h-auto", className)}
+    >
+      <Railbed />
+      <g
+        className="animate-train-move"
+        style={{
+          transformBox: "fill-box",
+          animation: "train-move 14s linear infinite reverse",
+        }}
       >
-        <TrainSvg />
-        <TrainSvg />
-      </div>
-    </div>
+        <TrainCrop />
+        <g transform="translate(760 0)">
+          <TrainCrop />
+        </g>
+      </g>
+    </svg>
   );
 }

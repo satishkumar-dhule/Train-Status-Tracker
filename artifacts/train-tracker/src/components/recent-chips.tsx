@@ -7,23 +7,28 @@ export interface RecentChipsProps {
 
 export function RecentChips({ recent, onSelect }: RecentChipsProps) {
   return (
-    <ul className="flex flex-wrap gap-2">
+    <ul className="space-y-2">
       {recent.map((train) => (
-        <li key={train.number} className="min-w-0 max-w-full">
+        <li key={train.number} className="min-w-0">
           <button
             type="button"
             onClick={() => onSelect(train)}
-            className="group flex items-start gap-2 rounded-full border border-border bg-card px-2.5 py-2 text-sm transition-colors hover:border-primary/60"
+            className="group flex w-full items-center gap-3 rounded-xl border border-card-border bg-card px-3 py-2.5 min-h-[44px] text-start transition-colors hover:border-primary/40"
             data-testid={`recent-chip-${train.number}`}
           >
-            <span className="mt-0.5 shrink-0 font-mono font-bold tracking-wider text-primary bg-primary/10 rounded-full px-2 py-0.5 text-xs">
-              {train.number}
+            <span className="h-9 w-9 rounded-lg bg-primary/10 text-primary font-mono text-sm font-bold grid place-items-center shrink-0">
+              {train.number.charAt(0)}
             </span>
-            <span
-              className="min-w-0 whitespace-normal text-start leading-snug text-muted-foreground group-hover:text-foreground"
-              data-testid={`recent-chip-name-${train.number}`}
-            >
-              {train.name}
+            <span className="flex-1 min-w-0">
+              <span className="block font-mono text-sm font-semibold text-primary">
+                {train.number}
+              </span>
+              <span
+                className="block text-sm text-muted-foreground whitespace-normal group-hover:text-foreground"
+                data-testid={`recent-chip-name-${train.number}`}
+              >
+                {train.name}
+              </span>
             </span>
           </button>
         </li>

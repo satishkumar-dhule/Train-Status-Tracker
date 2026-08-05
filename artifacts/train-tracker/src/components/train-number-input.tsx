@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { AlertTriangle, CheckCircle2, Clock, TrainFront } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Search, X } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import type { Key } from "../lib/i18n";
 import type { TrainEntry } from "@workspace/trains-data";
@@ -74,6 +74,11 @@ export function TrainNumberInput({
   return (
     <div>
       <div className="relative">
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary/50"
+          data-testid="input-train-icon"
+        />
         <Input
           id={id}
           type="text"
@@ -94,27 +99,39 @@ export function TrainNumberInput({
           autoComplete="off"
           spellCheck={false}
           required
-          className="font-mono text-xl h-14 bg-card border-border focus-visible:ring-primary uppercase tracking-widest pe-12 ps-11"
+          className={cn(
+            "h-10 w-full rounded-xl bg-primary/10 border-0 px-4 font-mono text-base tracking-[0.15em] text-primary placeholder:text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-0",
+            "pl-10 pe-16 uppercase",
+          )}
           data-testid={testId ?? "input-train-number"}
         />
-        <span className="absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-          <TrainFront className="w-5 h-5" data-testid="input-train-icon" />
-        </span>
-        <span className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none">
+        <span className="absolute end-11 top-1/2 -translate-y-1/2 pointer-events-none">
           {showValid ? (
             <CheckCircle2
-              className="text-success"
+              className="h-4 w-4 text-success"
               data-testid="status-valid"
               aria-label={t("hint.valid")}
             />
           ) : showError ? (
             <AlertTriangle
-              className="text-destructive"
+              className="h-4 w-4 text-destructive"
               data-testid="status-invalid"
               aria-label={t("hint.invalid")}
             />
           ) : null}
         </span>
+
+        {value !== "" && (
+          <button
+            type="button"
+            aria-label="Clear train number"
+            data-testid="clear-train-number"
+            onClick={() => handleValueChangeCb("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-primary/10 after:absolute after:-inset-2"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        )}
 
         {open && (
           <ul

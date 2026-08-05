@@ -24,8 +24,8 @@ export function LanguageSwitcher({
       <SelectTrigger
         aria-label="Select language"
         className={cn(
-          "h-9 w-auto gap-2 font-mono text-xs uppercase tracking-widest",
-          iconOnly && "w-9 px-0 justify-center gap-0 [&>svg:last-child]:hidden",
+          "h-10 w-auto gap-2 rounded-full bg-primary/10 px-3 font-sans text-sm font-medium text-primary",
+          iconOnly && "w-10 justify-center gap-0 px-0 [&>svg:last-child]:hidden",
           className,
         )}
         data-testid="select-language"

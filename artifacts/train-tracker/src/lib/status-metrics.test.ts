@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   computeDurationMinutes,
   computeProgressPercent,
+  computeStationDelay,
   findCurrentStation,
+  findNextStation,
   isProviderUnreachableError,
   isTrainNotFoundError,
   type StatusStationLike,
@@ -45,6 +47,59 @@ describe("findCurrentStation", () => {
 
   it("returns null for an empty list", () => {
     expect(findCurrentStation([])).toBeNull();
+  });
+});
+
+describe("findNextStation", () => {
+  it("returns the first upcoming station", () => {
+    const stations = [
+      station({ station_code: "A", has_departed: true }),
+      station({ station_code: "B", is_current: true }),
+      station({ station_code: "C", has_departed: false }),
+      station({ station_code: "D", has_departed: false }),
+    ];
+    expect(findNextStation(stations)?.station_code).toBe("C");
+  });
+
+  it("returns null when every station has been reached", () => {
+    const stations = [
+      station({ station_code: "A", has_departed: true }),
+      station({ station_code: "B", has_departed: true }),
+      station({ station_code: "C", is_current: true }),
+    ];
+    expect(findNextStation(stations)).toBeNull();
+  });
+
+  it("returns null for an empty list", () => {
+    expect(findNextStation([])).toBeNull();
+  });
+});
+
+describe("computeStationDelay", () => {
+  it("returns the delay for a station that is late", () => {
+    expect(
+      computeStationDelay(station({ delay_minutes: 20, has_departed: true })),
+    ).toBe(20);
+  });
+
+  it("returns 0 for a departed station that was on time", () => {
+    expect(
+      computeStationDelay(station({ delay_minutes: 0, has_departed: true })),
+    ).toBe(0);
+  });
+
+  it("returns 0 (on time) for the current station with delay 0", () => {
+    expect(
+      computeStationDelay(station({ delay_minutes: 0, is_current: true })),
+    ).toBe(0);
+  });
+
+  it("returns null for an upcoming station with delay 0", () => {
+    expect(computeStationDelay(station({ delay_minutes: 0 }))).toBeNull();
+  });
+
+  it("returns null when the delay is unknown", () => {
+    expect(computeStationDelay(station({ delay_minutes: null }))).toBeNull();
   });
 });
 

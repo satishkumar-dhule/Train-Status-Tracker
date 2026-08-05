@@ -14,14 +14,15 @@ function renderBadge(delayMinutes: number | null) {
 describe("DelayBadge", () => {
   it("renders a late badge when delayMinutes > 0", () => {
     renderBadge(15);
-    expect(screen.getByText("15M late")).toBeInTheDocument();
-    expect(screen.getByText("15M late")).toHaveClass("bg-warning");
+    expect(screen.getByText("+15 min")).toBeInTheDocument();
+    expect(screen.getByText("+15 min")).toHaveClass("bg-warning");
   });
 
-  it("renders an on-time outline badge when delayMinutes is 0", () => {
+  it("renders an on-time filled badge when delayMinutes is 0", () => {
     renderBadge(0);
     expect(screen.getByText("On time")).toBeInTheDocument();
-    expect(screen.getByText("On time")).toHaveClass("border-success");
+    expect(screen.getByText("On time")).toHaveClass("bg-success");
+    expect(screen.getByText("On time")).toHaveClass("text-success-foreground");
   });
 
   it("renders nothing when delayMinutes is null", () => {

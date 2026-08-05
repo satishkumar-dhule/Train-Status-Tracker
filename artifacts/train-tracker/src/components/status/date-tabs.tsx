@@ -6,6 +6,14 @@ export interface DateTab {
   iso: string;
   apiDate: string;
   label: string;
+  sub?: string;
+}
+
+function formatShortDate(iso: string) {
+  const d = new Date(`${iso}T00:00:00`);
+  const day = d.toLocaleDateString("en-US", { day: "2-digit" });
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  return `${day} ${month.toUpperCase()}`;
 }
 
 export function DateTabs({
@@ -40,16 +48,20 @@ export function DateTabs({
   }, [active]);
 
   return (
-    <div className="relative">
+    <div className="relative bg-card border border-card-border rounded-2xl overflow-hidden">
       <div
         ref={stripRef}
         role="group"
         aria-label={t("label.departureDate")}
-        className="flex gap-2 px-1 py-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden scroll-snap-x snap-x snap-mandatory"
+        className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-mandatory"
         data-testid="date-tabs"
       >
-        {dates.map(({ iso, apiDate, label }) => {
+        {dates.map(({ iso, apiDate, label, sub }) => {
           const isActive = active === apiDate;
+          const day = new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+            weekday: "short",
+          });
+          const dateSub = sub ?? (label === t("label.today") ? formatShortDate(iso) : null);
           return (
             <button
               key={apiDate}
@@ -58,14 +70,35 @@ export function DateTabs({
               aria-pressed={isActive}
               title={iso}
               className={cn(
-                "shrink-0 [scroll-snap-align:start] rounded-md border px-3 h-10 inline-flex items-center font-mono text-xs font-semibold uppercase tracking-widest transition-all",
+                "relative min-w-[104px] snap-start px-4 py-3 text-center transition-colors",
                 isActive
-                  ? "border-primary bg-brand text-primary-foreground"
-                  : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                  ? "bg-brand-soft text-primary"
+                  : "text-muted-foreground hover:bg-muted/60"
               )}
               data-testid={`tab-date-${apiDate}`}
             >
-              {label}
+              <span className="block text-[10px] font-sans font-medium uppercase tracking-wider text-muted-foreground">
+                {day}
+              </span>
+              <span
+                className={cn(
+                  "block font-sans font-semibold text-sm",
+                  isActive ? "text-primary" : "text-muted-foreground"
+                )}
+              >
+                {label}
+              </span>
+              {dateSub && (
+                <span className="block font-mono text-[10px] text-muted-foreground">
+                  {dateSub}
+                </span>
+              )}
+              {isActive && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand"
+                />
+              )}
             </button>
           );
         })}

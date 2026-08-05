@@ -27,6 +27,39 @@ export function findCurrentStation(
   return stations.find((station) => station.is_current) ?? null;
 }
 
+/** The first station the train has not reached yet, or null at the terminus. */
+export function findNextStation(
+  stations: readonly StatusStationLike[],
+): StatusStationLike | null {
+  return (
+    stations.find(
+      (station) => !station.has_departed && !station.is_current,
+    ) ?? null
+  );
+}
+
+/**
+ * Delay in minutes shown for a station, or null when it must not be claimed.
+ * A single rule used by every view so the same station never shows different
+ * statuses: late (delay_minutes > 0) returns the delay; a reached station
+ * (has_departed OR is_current) with delay_minutes === 0 returns 0 (on time);
+ * anything else (upcoming stations, or unknown delay) returns null.
+ */
+export function computeStationDelay(
+  station: StatusStationLike,
+): number | null {
+  if (station.delay_minutes != null && station.delay_minutes > 0) {
+    return station.delay_minutes;
+  }
+  if (
+    station.delay_minutes === 0 &&
+    (station.has_departed || station.is_current)
+  ) {
+    return 0;
+  }
+  return null;
+}
+
 /** Percent of the journey completed, clamped to [0, 100]. */
 export function computeProgressPercent(
   currentDistance: number | null,

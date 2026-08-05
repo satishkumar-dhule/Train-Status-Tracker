@@ -37,7 +37,10 @@ export function DisplaySettings({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
-          className={cn("shrink-0 text-muted-foreground", className)}
+          className={cn(
+            "h-10 w-10 grid place-items-center rounded-full bg-primary/10 text-primary hover:bg-primary/20",
+            className,
+          )}
           aria-label={t("label.display")}
           data-testid="button-display-settings"
         >
@@ -46,34 +49,36 @@ export function DisplaySettings({ className }: { className?: string }) {
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-56 p-2"
+        className="w-64 p-3"
         data-testid="display-settings-popover"
       >
-        <div className="px-3 pb-1.5 pt-2 font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          {t("label.display")}
-        </div>
-        <div role="group" aria-label={t("label.display")}>
-          {OPTION_KEYS.map(({ mode: option, labelKey }) => {
-            const active = mode === option;
-            return (
-              <button
-                key={option}
-                type="button"
-                onClick={() => select(option)}
-                aria-pressed={active}
-                className={cn(
-                  "flex w-full cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 font-mono text-xs uppercase tracking-widest transition-colors",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-primary/10 hover:text-foreground",
-                )}
-                data-testid={`display-mode-${option}`}
-              >
-                {t(labelKey)}
-                {active && <Check className="h-3.5 w-3.5 shrink-0" />}
-              </button>
-            );
-          })}
+        <div className="space-y-2">
+          <div className="px-1 font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            {t("label.display")}
+          </div>
+          <div role="group" aria-label={t("label.display")}>
+            {OPTION_KEYS.map(({ mode: option, labelKey }) => {
+              const active = mode === option;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => select(option)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 font-sans text-sm transition-colors hover:bg-muted",
+                    active
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-muted-foreground",
+                  )}
+                  data-testid={`display-mode-${option}`}
+                >
+                  {t(labelKey)}
+                  {active && <Check className="h-4 w-4 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </PopoverContent>
     </Popover>

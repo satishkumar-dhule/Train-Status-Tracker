@@ -33,7 +33,12 @@ export interface ProbeTrainRunsOptions {
 }
 
 export interface RunWeekdaysResult {
-  /** Day-of-week indices (0 = Sunday .. 6 = Saturday) observed running. */
+  /**
+   * Day-of-week indices (0 = Sunday .. 6 = Saturday) the train plausibly runs
+   * on. A weekday is trusted only when it ran on a majority of its probes
+   * (more "run" than "norun" outcomes) — a single spurious success from the
+   * provider on a non-running date must not pollute the pattern.
+   */
   weekdays: number[];
   /** Probe dates (YYYYMMDD, ascending) the train actually ran on. */
   observedRuns: string[];
@@ -103,6 +108,11 @@ export async function mapLimited<T, R>(
  * Probe the last 3 weeks of departure dates for `trainNumber` and derive its
  * running-weekday pattern. Any thrown error is treated as an unknown probe
  * (counted in `upstreamFailures`) rather than failing the whole discovery.
+ *
+ * Each weekday is probed ~3 times across the window; it is only counted as a
+ * running day when it returned "run" on a majority of its probes, so an
+ * occasional provider success on a day the train does not run does not mark
+ * that weekday as running.
  */
 export async function probeTrainRuns(
   trainNumber: string,
@@ -130,21 +140,35 @@ export async function probeTrainRuns(
     }
   });
 
-  const weekdays: number[] = [];
+  const runCounts = new Map<number, number>();
+  const norunCounts = new Map<number, number>();
   const observedRuns: string[] = [];
   let upstreamFailures = 0;
+
+  const weekdayOf = (apiDate: string): number =>
+    new Date(
+      Number(apiDate.slice(0, 4)),
+      Number(apiDate.slice(4, 6)) - 1,
+      Number(apiDate.slice(6, 8)),
+    ).getDay();
 
   for (const { date, outcome } of outcomes) {
     if (outcome === "run") {
       observedRuns.push(date);
-      const weekday = new Date(
-        Number(date.slice(0, 4)),
-        Number(date.slice(4, 6)) - 1,
-        Number(date.slice(6, 8)),
-      ).getDay();
-      if (!weekdays.includes(weekday)) weekdays.push(weekday);
-    } else if (outcome === "error") {
+      const weekday = weekdayOf(date);
+      runCounts.set(weekday, (runCounts.get(weekday) ?? 0) + 1);
+    } else if (outcome === "norun") {
+      const weekday = weekdayOf(date);
+      norunCounts.set(weekday, (norunCounts.get(weekday) ?? 0) + 1);
+    } else {
       upstreamFailures += 1;
+    }
+  }
+
+  const weekdays: number[] = [];
+  for (const [weekday, runs] of runCounts) {
+    if (runs > (norunCounts.get(weekday) ?? 0)) {
+      weekdays.push(weekday);
     }
   }
 
