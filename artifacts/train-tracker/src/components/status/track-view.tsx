@@ -59,9 +59,12 @@ function buildProgressPath(
 export function TrackView({
   stations,
   now: nowProp,
+  isLiveData = true,
 }: {
   stations: StationStatus[];
   now?: Date;
+  /** True when the underlying status payload is fresh enough to call live. */
+  isLiveData?: boolean;
 }) {
   const { t } = useI18n();
   const layout = useMemo(() => computeTrackLayout2D(stations), [stations]);
@@ -126,7 +129,7 @@ export function TrackView({
             <span className="text-border shrink-0">→</span>
             <span className="truncate">{last.station_code}</span>
           </div>
-          {live.moving && (
+          {isLiveData && live.moving && (
             <Badge
               variant="outline"
               className="text-xs h-6 px-2 border-primary/40 text-primary bg-primary/5 tracking-widest shrink-0"

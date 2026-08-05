@@ -1,7 +1,10 @@
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { defaultResource, resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  defaultResource,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import {
   NodeSDK,
@@ -10,6 +13,7 @@ import {
 } from "@opentelemetry/sdk-node";
 import { ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from "@opentelemetry/semantic-conventions";
 import { logger } from "./logger";
+import { redactUrl } from "./trace-attributes";
 
 const DEFAULT_SERVICE_NAME = "train-tracker-api";
 const DEFAULT_OTLP_ENDPOINT = "http://localhost:4318";
@@ -72,7 +76,9 @@ function isEnablingExporter(raw: string | undefined): boolean {
 }
 
 /** Parses `k1=v1,k2=v2` into a headers record; empty input yields `undefined`. */
-function parseHeaders(raw: string | undefined): Record<string, string> | undefined {
+function parseHeaders(
+  raw: string | undefined,
+): Record<string, string> | undefined {
   if (raw === undefined || raw.trim() === "") {
     return undefined;
   }
@@ -83,7 +89,9 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
     if (eqIndex <= 0) {
       continue;
     }
-    headers[trimmed.slice(0, eqIndex).trim()] = trimmed.slice(eqIndex + 1).trim();
+    headers[trimmed.slice(0, eqIndex).trim()] = trimmed
+      .slice(eqIndex + 1)
+      .trim();
   }
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
@@ -173,10 +181,24 @@ export function isTelemetryEnabled(): boolean {
   return parseTelemetryConfig(process.env).enabled;
 }
 
-/** Node auto-instrumentations with pino disabled (pino is bundled and unpatchable). */
+/** Node auto-instrumentations with pino disabled (pino is bundled and
+ * unpatchable) and the HTTP request URL redacted to its path. */
 function buildInstrumentations() {
   return getNodeAutoInstrumentations({
     "@opentelemetry/instrumentation-pino": { enabled: false },
+    "@opentelemetry/instrumentation-http": {
+      applyCustomAttributesOnSpan: (span, request) => {
+        // `request` is an IncomingMessage (server) or ClientRequest (client);
+        // both expose the request target as a string. `redactUrl` keeps the
+        // path and drops the query string, which carries user input.
+        const candidate =
+          (request as { url?: unknown }).url ??
+          (request as { path?: unknown }).path;
+        if (typeof candidate === "string") {
+          span.setAttribute("http.url", redactUrl(candidate));
+        }
+      },
+    },
   });
 }
 
@@ -201,17 +223,15 @@ function buildSdk(cfg: TelemetryConfig): NodeSDK {
       url: cfg.tracesEndpoint,
       headers: cfg.headers,
     });
-  const metricReaders =
-    cfg.metricReaders ??
-    [
-      new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({
-          url: cfg.metricsEndpoint,
-          headers: cfg.headers,
-        }),
-        exportIntervalMillis: cfg.metricExportIntervalMs,
+  const metricReaders = cfg.metricReaders ?? [
+    new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter({
+        url: cfg.metricsEndpoint,
+        headers: cfg.headers,
       }),
-    ];
+      exportIntervalMillis: cfg.metricExportIntervalMs,
+    }),
+  ];
 
   return new NodeSDK({
     serviceName: cfg.serviceName,
@@ -229,7 +249,9 @@ function buildSdk(cfg: TelemetryConfig): NodeSDK {
  * providers, if telemetry is enabled. Idempotent; when disabled this is a
  * cheap no-op that leaves `@opentelemetry/api` on its no-op providers.
  */
-export async function initTelemetry(configOverride?: TelemetryConfig): Promise<void> {
+export async function initTelemetry(
+  configOverride?: TelemetryConfig,
+): Promise<void> {
   if (sdk !== undefined) {
     return;
   }

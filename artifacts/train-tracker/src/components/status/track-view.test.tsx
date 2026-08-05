@@ -140,6 +140,16 @@ describe("TrackView", () => {
     expect(screen.getByText("Live")).toBeInTheDocument();
   });
 
+  it("hides the live badge when the status data is stale or placeholder", () => {
+    render(
+      <I18nProvider>
+        <TrackView stations={stations} now={now} isLiveData={false} />
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId("track-train")).toBeInTheDocument();
+    expect(screen.queryByText("Live")).not.toBeInTheDocument();
+  });
+
   it("shows the current station name as the prominent label", () => {
     renderTrack();
     expect(screen.getByTestId("track-label-BRC")).toHaveTextContent(

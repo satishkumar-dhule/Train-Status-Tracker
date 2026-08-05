@@ -244,6 +244,52 @@ describe("createRedisTtlCache", () => {
     ).toThrow();
   });
 
+  it("rejects non-finite TTLs", () => {
+    expect(() =>
+      createRedisTtlCache<string>(new FakeStore(), {
+        ttlMs: Number.NaN,
+        negativeTtlMs: 1000,
+      }),
+    ).toThrow();
+    expect(() =>
+      createRedisTtlCache<string>(new FakeStore(), {
+        ttlMs: 1000,
+        negativeTtlMs: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrow();
+  });
+
+  it("refuses to store a value that serializes to the not-found marker", async () => {
+    const { cache } = makeCache({ serialize: () => "tt:not-found" });
+    await expect(cache.set(KEY, "anything")).rejects.toThrow();
+    expect(cache.setNegative(KEY)).resolves.toBeUndefined();
+  });
+
+  it("treats an over-limit decompressed value as a miss without unbounded decompression", async () => {
+    const onError = vi.fn();
+    const store = new FakeStore();
+    const bomb = gzipSync(Buffer.from("x".repeat(5_000)));
+    store.data.set(`${PREFIX}:${KEY}`, { value: bomb, ttlSeconds: 300 });
+    const { cache } = makeCache({ maxValueBytes: 1_000, onError }, store);
+
+    await expect(cache.get(KEY)).resolves.toEqual({ status: "miss" });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][1]).toBe("deserialize");
+  });
+
+  it("treats an over-limit uncompressed value as a miss", async () => {
+    const onError = vi.fn();
+    const store = new FakeStore();
+    store.data.set(`${PREFIX}:${KEY}`, {
+      value: "y".repeat(5_000),
+      ttlSeconds: 300,
+    });
+    const { cache } = makeCache({ maxValueBytes: 1_000, onError }, store);
+
+    await expect(cache.get(KEY)).resolves.toEqual({ status: "miss" });
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("round-trips a pre-compressed payload exactly like production stores", async () => {
     const store = new FakeStore();
     const payload = { train_number: "22943", stations: ["a", "b", "c"] };

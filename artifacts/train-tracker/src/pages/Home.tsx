@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetTrainStatusQueryKey } from "@workspace/api-client-react";
 import type {
@@ -10,11 +10,9 @@ import {
   fromApiDate,
   getDateWindow,
   getUpcomingDates,
-  normalizeTrainNumber,
   pickDefaultRunDate,
   toApiDate,
 } from "@workspace/trains-data";
-import type { TrainEntry } from "@workspace/trains-data";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,8 +22,6 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { Key } from "@/lib/i18n";
-import { resolveTrain } from "@/lib/validation";
-import type { TrainValidationState } from "@/lib/validation";
 import {
   computeDurationMinutes,
   computeProgressPercent,
@@ -41,6 +37,7 @@ import { useRecentSearches } from "@/hooks/use-recent-searches";
 import { useTrainStatus } from "@/hooks/use-train-status";
 import { useTrainRuns } from "@/hooks/use-train-runs";
 import { useTrainCatalog } from "@/hooks/use-train-catalog";
+import { useTrainSearch } from "@/hooks/use-train-search";
 import { DateTabs } from "@/components/status/date-tabs";
 import { DelayBadge } from "@/components/status/delay-badge";
 import { JourneySummary } from "@/components/status/journey-summary";
@@ -51,6 +48,9 @@ import { StatusSkeleton } from "@/components/status/status-skeleton";
 import { TrackView } from "@/components/status/track-view";
 import { ViewToggle } from "@/components/status/view-toggle";
 import { useViewPreference } from "@/hooks/use-view-preference";
+
+/** A running-status payload stops being "live" once it is this old. */
+const LIVE_DATA_TTL_MS = 5 * 60 * 1000;
 
 function TrainIdentityBlock({
   data,
@@ -79,7 +79,7 @@ function TrainIdentityBlock({
       <div className="text-sm font-mono text-muted-foreground flex items-center gap-2 tracking-wide flex-wrap">
         <MapPin className="w-3.5 h-3.5" />
         <span>{data.source_station_name}</span>
-        <span className="text-muted-foreground/70">→</span>
+        <span className="text-muted-foreground">→</span>
         <span>{data.destination_station_name}</span>
         {stations[0]?.scheduled_departure &&
           stations[stations.length - 1]?.scheduled_arrival && (
@@ -100,32 +100,43 @@ export default function Home() {
   const queryClient = useQueryClient();
   const [view, setView] = useViewPreference();
 
-  const [trainNo, setTrainNo] = useState("");
-  const [trainValidity, setTrainValidity] = useState<TrainValidationState>({
-    status: "idle",
-  });
-  const [selectedTrain, setSelectedTrain] = useState<TrainEntry | null>(null);
+  const {
+    trainNo,
+    setTrainNo,
+    trainValidity,
+    setTrainValidity,
+    selectedTrain,
+    setSelectedTrain,
+    headerNo,
+    setHeaderNo,
+    headerValidity,
+    setHeaderValidity,
+    headerSelected,
+    setHeaderSelected,
+    searched,
+    apiParams,
+    userPickedDate,
+    handleSearchFormSubmit,
+    handleSelectRecent,
+    handleResultsSearch,
+    selectDate,
+    setDepartureDate,
+    reset,
+  } = useTrainSearch({ trains, addRecent });
 
-  const [headerNo, setHeaderNo] = useState("");
-  const [headerValidity, setHeaderValidity] = useState<TrainValidationState>({
-    status: "idle",
-  });
-  const [headerSelected, setHeaderSelected] = useState<TrainEntry | null>(null);
-
-  const [searched, setSearched] = useState(false);
-  const [apiParams, setApiParams] = useState({
-    train_number: "",
-    departure_date: "",
-  });
-
-  /** True once the user picks a date tab manually; clears on a new train. */
-  const userPickedDate = useRef(false);
-  useEffect(() => {
-    userPickedDate.current = false;
-  }, [apiParams.train_number]);
-
-  const today = useMemo(() => toApiDate(getUpcomingDates(1)[0]), []);
   const { runs } = useTrainRuns(searched ? apiParams.train_number : null);
+
+  // Once the train's runs are known, land on a run date: today when the train
+  // runs today, otherwise the most recent past run (or the next run). Never
+  // overrides a date the user picked manually.
+  useEffect(() => {
+    if (!searched || userPickedDate) return;
+    const recommended = runs && runs.length > 0 ? pickDefaultRunDate(runs) : null;
+    if (recommended && recommended !== apiParams.departure_date) {
+      setDepartureDate(recommended);
+    }
+  }, [searched, userPickedDate, runs, apiParams.departure_date, setDepartureDate]);
+
   const dates = useMemo(() => {
     const runDates =
       runs && runs.length > 0 ? runs.map(fromApiDate) : null;
@@ -150,81 +161,20 @@ export default function Home() {
     });
   }, [t, runs]);
 
-  // Once the train's runs are known, land on a run date: today when the train
-  // runs today, otherwise the most recent past run (or the next run). Never
-  // overrides a date the user picked manually.
-  useEffect(() => {
-    if (!searched || userPickedDate.current) return;
-    const recommended = runs && runs.length > 0 ? pickDefaultRunDate(runs) : null;
-    if (recommended && recommended !== apiParams.departure_date) {
-      setApiParams((prev) => ({ ...prev, departure_date: recommended }));
-    }
-  }, [searched, runs, apiParams.departure_date]);
+  const { data, isLoading, isFetching, isError, isPlaceholderData, messageKey } =
+    useTrainStatus(searched ? apiParams : null);
 
-  const { data, isLoading, isFetching, isError, messageKey } = useTrainStatus(
-    searched ? apiParams : null,
-  );
-
-  // Auto-submit: once the train resolves to valid, jump straight to the status
-  // screen for today. The page-1 submit button is a secondary affordance.
-  useEffect(() => {
-    if (searched || trainValidity.status !== "valid" || !trainNo.trim()) return;
-    const train = resolveTrain(trainNo, selectedTrain, trains);
-    if (train) addRecent(train);
-    setApiParams({
-      train_number: train ? train.number : normalizeTrainNumber(trainNo),
-      departure_date: today,
-    });
-    setSearched(true);
-  }, [
-    searched,
-    trainValidity,
-    trainNo,
-    selectedTrain,
-    today,
-    addRecent,
-    trains,
-  ]);
-
-  const handleSearchFormSubmit = () => {
-    const train = resolveTrain(trainNo, selectedTrain, trains);
-    if (!train) return;
-    addRecent(train);
-    setApiParams({ train_number: train.number, departure_date: today });
-    setSearched(true);
-  };
-
-  const handleSelectRecent = (train: TrainEntry) => {
-    setTrainNo(train.number);
-    setSelectedTrain(train);
-    setTrainValidity({ status: "valid", message: "hint.valid" });
-  };
-
-  const handleResultsSearch = () => {
-    const train = resolveTrain(headerNo, headerSelected, trains);
-    if (!train || train.number === apiParams.train_number) return;
-    addRecent(train);
-    setApiParams({ train_number: train.number, departure_date: today });
-    setHeaderNo("");
-    setHeaderSelected(null);
-    setHeaderValidity({ status: "idle" });
-  };
+  /** A status payload is only "live" while it is current AND freshly updated. */
+  const isLiveData =
+    !!data &&
+    !isPlaceholderData &&
+    !!data.last_updated &&
+    Date.now() - Date.parse(data.last_updated) <= LIVE_DATA_TTL_MS;
 
   const handleRetry = () => {
     queryClient.invalidateQueries({
       queryKey: getGetTrainStatusQueryKey(apiParams),
     });
-  };
-
-  const reset = () => {
-    setSearched(false);
-    setTrainNo("");
-    setSelectedTrain(null);
-    setTrainValidity({ status: "idle" });
-    setHeaderNo("");
-    setHeaderSelected(null);
-    setHeaderValidity({ status: "idle" });
-    setApiParams({ train_number: "", departure_date: "" });
   };
 
   // Derived journey facts from the running-status payload.
@@ -402,16 +352,23 @@ export default function Home() {
               <div data-testid="status-delay-badge">
                 <DelayBadge delayMinutes={data.current_delay_minutes ?? null} />
               </div>
-              {data.last_updated && (
+              {isPlaceholderData ? (
                 <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
-                  <Clock className="w-3.5 h-3.5" />
-                  {t("status.updated", {
-                    time: new Date(data.last_updated).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                  })}
+                  <Clock className="w-3.5 h-3.5 animate-spin" />
+                  {t("status.refreshing")}
                 </div>
+              ) : (
+                data.last_updated && (
+                  <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
+                    <Clock className="w-3.5 h-3.5" />
+                    {t("status.updated", {
+                      time: new Date(data.last_updated).toLocaleTimeString(
+                        [],
+                        { hour: "2-digit", minute: "2-digit" },
+                      ),
+                    })}
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -421,10 +378,7 @@ export default function Home() {
           <DateTabs
             dates={dates}
             active={apiParams.departure_date}
-            onChange={(apiDate) => {
-              userPickedDate.current = true;
-              setApiParams((prev) => ({ ...prev, departure_date: apiDate }));
-            }}
+            onChange={selectDate}
           />
         </div>
 
@@ -457,7 +411,7 @@ export default function Home() {
               <ViewToggle value={view} onChange={setView} />
             </div>
             {view === "track" ? (
-              <TrackView stations={data.stations} />
+              <TrackView stations={data.stations} isLiveData={isLiveData} />
             ) : (
               <StationTimeline stations={data.stations} />
             )}

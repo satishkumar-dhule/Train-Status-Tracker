@@ -38,6 +38,7 @@ export const KEYS = [
   "status.lateMinutes",
   "status.updated",
   "status.live",
+  "status.refreshing",
   "view.timeline",
   "view.track",
   "error.signalLost",

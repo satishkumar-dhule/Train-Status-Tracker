@@ -139,6 +139,19 @@ describe("GET /api/trains/status", () => {
     });
   });
 
+  it("rejects a non-5-digit train_number without touching upstream or cache", async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(happyRaw));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({ train_number: "22943:20260802", departure_date: "20260802" });
+
+    expect(res.status).toBe(400);
+    expect(typeof res.body.error).toBe("string");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when the upstream reports the train as unknown", async () => {
     const fetchSpy = vi.fn(async () =>
       jsonResponse({ error: true, status: { result: "failure" } }),

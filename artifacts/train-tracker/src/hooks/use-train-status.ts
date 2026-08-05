@@ -15,6 +15,12 @@ export interface TrainStatusResult {
   isLoading: boolean;
   /** True whenever any background refetch is in flight. */
   isFetching: boolean;
+  /**
+   * True when the shown data is a placeholder (the previous query's data)
+   * while a new query — e.g. a different date — is still loading. Placeholder
+   * data is NOT the selected date's truth and must not be presented as live.
+   */
+  isPlaceholderData: boolean;
   isError: boolean;
   isNotFound: boolean;
   isProviderError: boolean;
@@ -40,7 +46,7 @@ export function useTrainStatus(
     },
   );
 
-  const { data, isFetching, isError, error } = query;
+  const { data, isFetching, isError, isPlaceholderData, error } = query;
 
   const isLoading = data === undefined && isFetching;
 
@@ -66,6 +72,7 @@ export function useTrainStatus(
     data,
     isLoading,
     isFetching,
+    isPlaceholderData,
     isError,
     isNotFound,
     isProviderError,

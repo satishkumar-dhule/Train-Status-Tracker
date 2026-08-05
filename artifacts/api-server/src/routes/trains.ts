@@ -13,13 +13,14 @@ import {
   trace,
   SpanStatusCode,
   type Counter,
-  type Exception,
 } from "@opentelemetry/api";
 import { createTtlCache } from "../lib/ttl-cache";
 import { logger } from "../lib/logger";
 import { createRedisStore } from "../lib/redis-client";
 import { createRedisTtlCache } from "../lib/redis-cache";
+import { envPositiveNumber } from "../lib/env";
 import { zodErrorMessage } from "../lib/zod-errors";
+import { sanitizeException } from "../lib/trace-attributes";
 import {
   fetchPaytmTrainStatus,
   PaytmTrainNotFoundError,
@@ -30,25 +31,31 @@ import { mapStatusResponse } from "../lib/train-status-mapper";
 /** Routes for train running status lookups. */
 const router: IRouter = Router();
 
-const TRAIN_STATUS_CACHE_TTL_MS = Number(
-  process.env.STATUS_CACHE_TTL_MS ??
-    process.env.TRAIN_STATUS_CACHE_TTL_MS ??
-    5 * 60 * 1000,
+const TRAIN_STATUS_CACHE_TTL_MS = envPositiveNumber(
+  process.env,
+  "STATUS_CACHE_TTL_MS",
+  5 * 60 * 1000,
 );
 
 /** Local hot-path TTL; shorter than the shared (Redis) TTL so L1 re-promotes from L2. */
-const STATUS_CACHE_L1_TTL_MS = Number(
-  process.env.STATUS_CACHE_L1_TTL_MS ?? 30_000,
+const STATUS_CACHE_L1_TTL_MS = envPositiveNumber(
+  process.env,
+  "STATUS_CACHE_L1_TTL_MS",
+  30_000,
 );
 
 /** How long "train not found" results are cached to protect the upstream. */
-const STATUS_CACHE_NEG_TTL_MS = Number(
-  process.env.STATUS_CACHE_NEG_TTL_MS ?? 60_000,
+const STATUS_CACHE_NEG_TTL_MS = envPositiveNumber(
+  process.env,
+  "STATUS_CACHE_NEG_TTL_MS",
+  60_000,
 );
 
 /** TTL randomization (±fraction) to stagger cross-instance expiry. */
-const STATUS_CACHE_TTL_JITTER = Number(
-  process.env.STATUS_CACHE_TTL_JITTER ?? 0.1,
+const STATUS_CACHE_TTL_JITTER = envPositiveNumber(
+  process.env,
+  "STATUS_CACHE_TTL_JITTER",
+  0.1,
 );
 
 const REDIS_KEY_PREFIX = process.env.REDIS_KEY_PREFIX ?? "tt:status:v1";
@@ -58,11 +65,7 @@ const REDIS_COMPRESS = process.env.REDIS_GZIP !== "false";
 type TrainStatusPayload = ReturnType<typeof GetTrainStatusResponse.parse>;
 
 type StatusResult =
-  | "ok"
-  | "validation_error"
-  | "not_found"
-  | "upstream_error"
-  | "internal_error";
+  "ok" | "validation_error" | "not_found" | "upstream_error" | "internal_error";
 
 const getMeter = () => metrics.getMeter("train-tracker-api");
 
@@ -79,14 +82,8 @@ function recordStatusResult(result: StatusResult): void {
   getStatusRequestsCounter().add(1, { result });
 }
 
-function annotateTrainSpan(
-  trainNumber: string,
-  departureDate: string,
-  result: StatusResult,
-): void {
+function annotateTrainSpan(result: StatusResult): void {
   const span = trace.getActiveSpan();
-  span?.setAttribute("trains.train_number", trainNumber);
-  span?.setAttribute("trains.departure_date", departureDate);
   span?.setAttribute("trains.result", result);
 }
 
@@ -198,12 +195,12 @@ router.get("/trains/status", async (req, res): Promise<void> => {
         throw err;
       }
     });
-    annotateTrainSpan(train_number, departure_date, "ok");
+    annotateTrainSpan("ok");
     recordStatusResult("ok");
     res.json(payload);
   } catch (err) {
     if (err instanceof PaytmTrainNotFoundError) {
-      annotateTrainSpan(train_number, departure_date, "not_found");
+      annotateTrainSpan("not_found");
       trace.getActiveSpan()?.setStatus({
         code: SpanStatusCode.ERROR,
         message: "train not found",
@@ -213,18 +210,18 @@ router.get("/trains/status", async (req, res): Promise<void> => {
       return;
     }
     if (err instanceof PaytmUpstreamError) {
-      annotateTrainSpan(train_number, departure_date, "upstream_error");
+      annotateTrainSpan("upstream_error");
       const span = trace.getActiveSpan();
-      span?.recordException(err as Exception);
+      span?.recordException(sanitizeException(err));
       span?.setStatus({ code: SpanStatusCode.ERROR });
       recordStatusResult("upstream_error");
       req.log.error({ err }, "Upstream fetch failed");
       res.status(502).json({ error: "Could not reach train data provider" });
       return;
     }
-    annotateTrainSpan(train_number, departure_date, "internal_error");
+    annotateTrainSpan("internal_error");
     const span = trace.getActiveSpan();
-    span?.recordException(err as Exception);
+    span?.recordException(sanitizeException(err));
     span?.setStatus({ code: SpanStatusCode.ERROR });
     recordStatusResult("internal_error");
     req.log.error({ err }, "Unexpected error");

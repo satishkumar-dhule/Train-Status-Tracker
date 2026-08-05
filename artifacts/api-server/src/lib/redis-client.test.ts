@@ -3,48 +3,98 @@ import { parseRedisConfig } from "./redis-client";
 
 const EMPTY: Record<string, string | undefined> = {};
 
-const DEFAULT_URL = "redis://red-d9pf93e417fc73dppv4g:6379";
 const DEFAULT_PROBE_MS = 15 * 60 * 1000;
 
 describe("parseRedisConfig mode", () => {
-  it("defaults to auto mode", () => {
-    expect(parseRedisConfig(EMPTY).mode).toBe("auto");
+  it("defaults to auto mode when a URL is configured", () => {
+    expect(
+      parseRedisConfig({ REDIS_URL: "redis://cache.internal:6379" }).mode,
+    ).toBe("auto");
+  });
+
+  it("disables Redis when no URL is configured", () => {
+    const cfg = parseRedisConfig(EMPTY);
+    expect(cfg.mode).toBe("disabled");
+    expect(cfg.url).toBe("");
+  });
+
+  it("disables Redis when the URL is blank", () => {
+    expect(parseRedisConfig({ REDIS_URL: "   " }).mode).toBe("disabled");
+  });
+
+  it("disables Redis when the URL scheme is not redis/rediss", () => {
+    expect(parseRedisConfig({ REDIS_URL: "http://evil:6379" }).mode).toBe(
+      "disabled",
+    );
+    expect(parseRedisConfig({ REDIS_URL: "foo://host" }).mode).toBe("disabled");
+    expect(parseRedisConfig({ REDIS_URL: "//no-scheme" }).mode).toBe(
+      "disabled",
+    );
   });
 
   it("accepts explicit auto via REDIS_MODE", () => {
-    expect(parseRedisConfig({ REDIS_MODE: "auto" }).mode).toBe("auto");
     expect(
-      parseRedisConfig({ REDIS_MODE: "AUTO" }).mode,
+      parseRedisConfig({
+        REDIS_URL: "redis://cache.internal:6379",
+        REDIS_MODE: "auto",
+      }).mode,
+    ).toBe("auto");
+    expect(
+      parseRedisConfig({
+        REDIS_URL: "redis://cache.internal:6379",
+        REDIS_MODE: "AUTO",
+      }).mode,
     ).toBe("auto");
   });
 
   it("maps REDIS_MODE enabled/on to enabled and disabled/off to disabled", () => {
-    expect(parseRedisConfig({ REDIS_MODE: "enabled" }).mode).toBe("enabled");
-    expect(parseRedisConfig({ REDIS_MODE: "on" }).mode).toBe("enabled");
-    expect(parseRedisConfig({ REDIS_MODE: "disabled" }).mode).toBe("disabled");
-    expect(parseRedisConfig({ REDIS_MODE: "off" }).mode).toBe("disabled");
+    const withUrl = { REDIS_URL: "redis://cache.internal:6379" };
+    expect(parseRedisConfig({ ...withUrl, REDIS_MODE: "enabled" }).mode).toBe(
+      "enabled",
+    );
+    expect(parseRedisConfig({ ...withUrl, REDIS_MODE: "on" }).mode).toBe(
+      "enabled",
+    );
+    expect(parseRedisConfig({ ...withUrl, REDIS_MODE: "disabled" }).mode).toBe(
+      "disabled",
+    );
+    expect(parseRedisConfig({ ...withUrl, REDIS_MODE: "off" }).mode).toBe(
+      "disabled",
+    );
   });
 
   it("falls back to auto for unknown REDIS_MODE values", () => {
-    expect(parseRedisConfig({ REDIS_MODE: "sometimes" }).mode).toBe("auto");
+    expect(
+      parseRedisConfig({
+        REDIS_URL: "redis://cache.internal:6379",
+        REDIS_MODE: "sometimes",
+      }).mode,
+    ).toBe("auto");
   });
 
   it("honors REDIS_ENABLED for backward compatibility", () => {
-    expect(
-      parseRedisConfig({ REDIS_ENABLED: "true" }).mode,
-    ).toBe("enabled");
-    expect(
-      parseRedisConfig({ REDIS_ENABLED: "false" }).mode,
-    ).toBe("disabled");
+    const withUrl = { REDIS_URL: "redis://cache.internal:6379" };
+    expect(parseRedisConfig({ ...withUrl, REDIS_ENABLED: "true" }).mode).toBe(
+      "enabled",
+    );
+    expect(parseRedisConfig({ ...withUrl, REDIS_ENABLED: "false" }).mode).toBe(
+      "disabled",
+    );
   });
 
   it("treats a non-boolean REDIS_ENABLED as auto", () => {
-    expect(parseRedisConfig({ REDIS_ENABLED: "1" }).mode).toBe("auto");
-    expect(parseRedisConfig({ REDIS_ENABLED: "TRUE" }).mode).toBe("auto");
+    const withUrl = { REDIS_URL: "redis://cache.internal:6379" };
+    expect(parseRedisConfig({ ...withUrl, REDIS_ENABLED: "1" }).mode).toBe(
+      "auto",
+    );
+    expect(parseRedisConfig({ ...withUrl, REDIS_ENABLED: "TRUE" }).mode).toBe(
+      "auto",
+    );
   });
 
   it("lets REDIS_MODE take precedence over REDIS_ENABLED", () => {
     const cfg = parseRedisConfig({
+      REDIS_URL: "redis://cache.internal:6379",
       REDIS_MODE: "disabled",
       REDIS_ENABLED: "true",
     });
@@ -53,18 +103,16 @@ describe("parseRedisConfig mode", () => {
 });
 
 describe("parseRedisConfig url", () => {
-  it("defaults to the internal Render endpoint", () => {
-    expect(parseRedisConfig(EMPTY).url).toBe(DEFAULT_URL);
-  });
-
   it("honors an explicit REDIS_URL override", () => {
     expect(
       parseRedisConfig({ REDIS_URL: "redis://cache.internal:6379" }).url,
     ).toBe("redis://cache.internal:6379");
   });
 
-  it("ignores a blank REDIS_URL", () => {
-    expect(parseRedisConfig({ REDIS_URL: "   " }).url).toBe(DEFAULT_URL);
+  it("honors a rediss URL for TLS connections", () => {
+    expect(
+      parseRedisConfig({ REDIS_URL: "rediss://cache.internal:6380" }).url,
+    ).toBe("rediss://cache.internal:6380");
   });
 });
 
@@ -90,5 +138,14 @@ describe("parseRedisConfig timings", () => {
     expect(
       parseRedisConfig({ REDIS_COMMAND_TIMEOUT_MS: "1500" }).commandTimeoutMs,
     ).toBe(1500);
+  });
+
+  it("rejects non-finite command timeouts", () => {
+    expect(
+      parseRedisConfig({ REDIS_COMMAND_TIMEOUT_MS: "abc" }).commandTimeoutMs,
+    ).toBe(200);
+    expect(
+      parseRedisConfig({ REDIS_COMMAND_TIMEOUT_MS: "-5" }).commandTimeoutMs,
+    ).toBe(200);
   });
 });

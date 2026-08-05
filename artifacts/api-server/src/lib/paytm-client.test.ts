@@ -64,16 +64,12 @@ afterEach(() => {
 
 describe("fetchPaytmTrainStatus", () => {
   it("returns a typed payload on success", async () => {
-    const fetchSpy = vi.fn(
-      async (_input: string | URL, _init?: RequestInit) =>
-        jsonResponse(happyRaw),
+    const fetchSpy = vi.fn(async (_input: string | URL, _init?: RequestInit) =>
+      jsonResponse(happyRaw),
     );
     vi.stubGlobal("fetch", fetchSpy);
 
-    const payload = await fetchPaytmTrainStatus(
-      TRAIN_NUMBER,
-      DEPARTURE_DATE,
-    );
+    const payload = await fetchPaytmTrainStatus(TRAIN_NUMBER, DEPARTURE_DATE);
 
     expect(payload).toEqual(expectedPayload);
     expect(payload.stations[0].haltTime).toBe(20);
@@ -99,11 +95,9 @@ describe("fetchPaytmTrainStatus", () => {
         },
       });
 
-    const payload = await fetchPaytmTrainStatus(
-      TRAIN_NUMBER,
-      DEPARTURE_DATE,
-      { fetchImpl },
-    );
+    const payload = await fetchPaytmTrainStatus(TRAIN_NUMBER, DEPARTURE_DATE, {
+      fetchImpl,
+    });
 
     expect(payload.stations[0]).toEqual({
       stnSerialNumber: "42",
@@ -205,6 +199,27 @@ describe("fetchPaytmTrainStatus", () => {
     ).rejects.toThrow(PaytmTrainNotFoundError);
   });
 
+  it("throws PaytmUpstreamError for an ambiguous error without a failure result", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse({
+        error: true,
+        status: { result: "service_unavailable" },
+      });
+
+    await expect(
+      fetchPaytmTrainStatus(TRAIN_NUMBER, DEPARTURE_DATE, { fetchImpl }),
+    ).rejects.toThrow(PaytmUpstreamError);
+  });
+
+  it("throws PaytmUpstreamError when the error carries no result marker", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse({ error: true, status: {} });
+
+    await expect(
+      fetchPaytmTrainStatus(TRAIN_NUMBER, DEPARTURE_DATE, { fetchImpl }),
+    ).rejects.toThrow(PaytmUpstreamError);
+  });
+
   it("does not throw PaytmTrainNotFoundError on successful result", async () => {
     const fetchImpl: typeof fetch = async () =>
       jsonResponse({
@@ -213,11 +228,9 @@ describe("fetchPaytmTrainStatus", () => {
         body: { stations: [], current_station: null },
       });
 
-    const payload = await fetchPaytmTrainStatus(
-      TRAIN_NUMBER,
-      DEPARTURE_DATE,
-      { fetchImpl },
-    );
+    const payload = await fetchPaytmTrainStatus(TRAIN_NUMBER, DEPARTURE_DATE, {
+      fetchImpl,
+    });
 
     expect(payload.stations).toEqual([]);
   });

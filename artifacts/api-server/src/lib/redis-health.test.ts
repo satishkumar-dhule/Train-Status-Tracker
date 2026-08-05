@@ -203,4 +203,20 @@ describe("createRedisHealth", () => {
     await vi.advanceTimersByTimeAsync(PROBE_MS * 2);
     expect(client.connectCalls).toBe(0);
   });
+
+  it("removes the close and error listeners on dispose", () => {
+    const client = new FakeRedis();
+    const health = createRedisHealth(client, {
+      probeIntervalMs: PROBE_MS,
+      autoRecheck: true,
+    });
+    client.emit("ready");
+    expect(health.isHealthy()).toBe(true);
+
+    health.dispose();
+    client.emit("close");
+    expect(health.isHealthy()).toBe(true);
+    client.emit("error", new Error("timeout"));
+    expect(health.isHealthy()).toBe(true);
+  });
 });

@@ -34,11 +34,10 @@ export const GetTrainCatalogResponse = zod.object({
  * @summary Duck-typed fuzzy search over the train catalog
  */
 export const searchTrainsQueryLimitMax = 100;
-
-
+export const searchTrainsQueryQMaxLength = 64;
 
 export const SearchTrainsQueryParams = zod.object({
-  "q": zod.coerce.string().describe('Search query (e.g. 229, rajdhani, mumbai rajdhani)'),
+  "q": zod.coerce.string().trim().max(searchTrainsQueryQMaxLength).describe('Search query (e.g. 229, rajdhani, mumbai rajdhani)'),
   "limit": zod.coerce.number().int().min(1).max(searchTrainsQueryLimitMax).optional().describe('Maximum number of results (default 10)')
 })
 
@@ -54,8 +53,11 @@ export const SearchTrainsResponse = zod.object({
  * Probes the data provider across the last 3 weeks to derive the train's running-weekday pattern, then returns the last 3 departure dates up to today plus the next upcoming run.
  * @summary Get the train's recent and upcoming run dates
  */
+export const getTrainRunsQueryTrainNumberRegExp = new RegExp('^\\d{5}$');
+
+
 export const GetTrainRunsQueryParams = zod.object({
-  "train_number": zod.coerce.string().describe('Train number (e.g. 22943)')
+  "train_number": zod.coerce.string().regex(getTrainRunsQueryTrainNumberRegExp).describe('Train number (e.g. 22943)')
 })
 
 export const GetTrainRunsResponse = zod.object({
@@ -69,10 +71,11 @@ export const GetTrainRunsResponse = zod.object({
  * @summary Get train running status
  */
 export const getTrainStatusQueryDepartureDateRegExp = new RegExp('^\\d{8}$');
+export const getTrainStatusQueryTrainNumberRegExp = new RegExp('^\\d{5}$');
 
 
 export const GetTrainStatusQueryParams = zod.object({
-  "train_number": zod.coerce.string().describe('Train number (e.g. 22943)'),
+  "train_number": zod.coerce.string().regex(getTrainStatusQueryTrainNumberRegExp).describe('Train number (e.g. 22943)'),
   "departure_date": zod.coerce.string().regex(getTrainStatusQueryDepartureDateRegExp).describe('Departure date in YYYYMMDD format (e.g. 20260801)')
 })
 

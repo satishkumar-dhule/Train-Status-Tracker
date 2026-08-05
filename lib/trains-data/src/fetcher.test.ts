@@ -198,6 +198,85 @@ describe("createTrainDataFetcher", () => {
     expect(() => createTrainDataFetcher({ ttlMs: 0 })).toThrow();
   });
 
+  it("rejects invalid hardening options", () => {
+    expect(() => createTrainDataFetcher({ timeoutMs: 0 })).toThrow();
+    expect(() => createTrainDataFetcher({ maxRedirects: -1 })).toThrow();
+    expect(() => createTrainDataFetcher({ maxResponseBytes: 0 })).toThrow();
+  });
+
+  it("aborts the upstream fetch when it exceeds the timeout", async () => {
+    const onError = vi.fn();
+    const fetchFn = vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(init.signal?.reason),
+        );
+      });
+    });
+    const fetcher = createTrainDataFetcher({ fetchFn, onError, timeoutMs: 20 });
+
+    const trains = await fetcher.getTrains();
+
+    expect(trains.length).toBeGreaterThan(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("timed out");
+  });
+
+  it("follows a bounded number of redirects then succeeds", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (String(url).includes("enquiry.indianrail.gov.in")) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://mirror.example/train_data.js?v=2" },
+        });
+      }
+      return jsResponse(SAMPLE_JS);
+    });
+    const fetcher = createTrainDataFetcher({ fetchFn, maxRedirects: 3 });
+
+    expect(await fetcher.getTrains()).toEqual(SAMPLE_TRAINS);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back when redirects exceed the cap", async () => {
+    const onError = vi.fn();
+    const fetchFn = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://mirror.example/train_data.js" },
+        }),
+    );
+    const fetcher = createTrainDataFetcher({
+      fetchFn,
+      onError,
+      maxRedirects: 2,
+    });
+
+    const trains = await fetcher.getTrains();
+
+    expect(trains.length).toBeGreaterThan(0);
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("redirect");
+  });
+
+  it("falls back when the response body exceeds the byte cap", async () => {
+    const onError = vi.fn();
+    const fetchFn = vi.fn(async () => new Response("x".repeat(4096)));
+    const fetcher = createTrainDataFetcher({
+      fetchFn,
+      onError,
+      maxResponseBytes: 1024,
+    });
+
+    const trains = await fetcher.getTrains();
+
+    expect(trains.length).toBeGreaterThan(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(String(onError.mock.calls[0][0])).toContain("exceeded");
+  });
+
   it("search runs the fuzzy matcher against the fetched list", async () => {
     const fetchFn = vi.fn(async () => jsResponse(SAMPLE_JS));
     const fetcher = createTrainDataFetcher({ fetchFn });

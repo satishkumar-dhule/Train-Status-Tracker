@@ -25,6 +25,20 @@ vi.mock("@/hooks/use-train-runs", () => ({
   useTrainRuns: mocks.useTrainRuns,
 }));
 
+vi.mock("@workspace/api-client-react", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@workspace/api-client-react")>();
+  return {
+    ...actual,
+    getTrainCatalog: vi.fn(async () => ({
+      trains: [
+        { number: "22943", name: "Indore Intercity SF Express" },
+        { number: "12951", name: "Mumbai Rajdhani Express" },
+      ],
+    })),
+  };
+});
+
 function makeResponse(
   overrides: Partial<TrainStatusResponse> = {},
 ): TrainStatusResponse {
@@ -162,6 +176,15 @@ function renderHome() {
   );
 }
 
+/** Type a train number into the page-1 input and submit with Enter. */
+async function searchFor(
+  user: ReturnType<typeof userEvent.setup>,
+  number: string,
+) {
+  await user.type(screen.getByTestId("input-train-number"), number);
+  await user.keyboard("{Enter}");
+}
+
 describe("Home", () => {
   beforeEach(() => {
     mocks.useTrainStatus.mockReset();
@@ -187,12 +210,17 @@ describe("Home", () => {
     expect(screen.queryByTestId("date-tabs")).not.toBeInTheDocument();
   });
 
-  it("auto-submits a fully typed valid train number and renders the results", async () => {
+  it("does not navigate while typing a valid number; submits only on Enter", async () => {
     const user = userEvent.setup();
     mockSuccess();
     renderHome();
 
     await user.type(screen.getByTestId("input-train-number"), "22943");
+
+    expect(screen.queryByTestId("text-train-number")).not.toBeInTheDocument();
+    expect(mocks.calls.filter((call) => call !== null)).toHaveLength(0);
+
+    await user.keyboard("{Enter}");
 
     expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
       "22943",
@@ -211,12 +239,47 @@ describe("Home", () => {
     });
   });
 
+  it("submits when the search button is clicked", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    renderHome();
+
+    await user.type(screen.getByTestId("input-train-number"), "22943");
+    await user.click(screen.getByTestId("submit-train-search"));
+
+    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
+      "22943",
+    );
+    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
+      train_number: "22943",
+    });
+  });
+
+  it("submits immediately when a train is picked from the autocomplete list", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    renderHome();
+
+    await user.type(screen.getByTestId("input-train-number"), "2294");
+    const option = await screen.findByRole("option", {
+      name: /Indore Intercity SF Express/,
+    });
+    await user.click(option);
+
+    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
+      "22943",
+    );
+    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
+      train_number: "22943",
+    });
+  });
+
   it("renders the error panel with the i18n message and a retry button", async () => {
     const user = userEvent.setup();
     mockError("error.providerUnreachable");
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
+    await searchFor(user, "22943");
 
     const panel = await screen.findByTestId("status-error");
     expect(panel).toHaveTextContent(
@@ -256,8 +319,7 @@ describe("Home", () => {
     mockSuccess();
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
 
     expect(screen.getByTestId("button-new-search")).toBeInTheDocument();
     const compactForm = screen.getByTestId("results-search-form");
@@ -280,8 +342,7 @@ describe("Home", () => {
     mockSuccess();
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
 
     expect(screen.getByTestId("station-timeline")).toBeInTheDocument();
     expect(screen.queryByTestId("track-view")).not.toBeInTheDocument();
@@ -308,8 +369,7 @@ describe("Home", () => {
     mockSuccess();
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
 
     const tabs = screen.getAllByTestId(/^tab-date-/);
     expect(tabs).toHaveLength(7);
@@ -341,8 +401,7 @@ describe("Home", () => {
     });
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
 
     const tabs = screen.getAllByTestId(/^tab-date-/);
     expect(tabs).toHaveLength(4);
@@ -361,8 +420,7 @@ describe("Home", () => {
     });
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
 
     await waitFor(() => {
       expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
@@ -387,8 +445,7 @@ describe("Home", () => {
     });
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
 
     expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
       train_number: "22943",
@@ -406,8 +463,7 @@ describe("Home", () => {
     });
     renderHome();
 
-    await user.type(screen.getByTestId("input-train-number"), "22943");
-    await screen.findByTestId("text-train-number");
+    await searchFor(user, "22943");
     await user.click(screen.getByTestId("tab-date-20260806"));
 
     expect(screen.getByTestId("tab-date-20260806")).toHaveAttribute(
@@ -434,7 +490,7 @@ describe("Home", () => {
       mockSuccess();
       renderHome();
 
-      await user.type(screen.getByTestId("input-train-number"), "22943");
+      await searchFor(user, "22943");
       await screen.findByTestId("text-train-number");
 
       expect(screen.getByTestId("train-identity-hero")).toBeInTheDocument();

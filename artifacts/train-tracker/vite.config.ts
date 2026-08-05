@@ -15,6 +15,12 @@ if (Number.isNaN(port) || port <= 0) {
 
 const basePath = process.env.BASE_PATH ?? '/';
 
+// Local API dev server. Override with API_PROXY_TARGET when the API runs on a
+// different host/port. `/api/*` is proxied only by the dev/preview servers;
+// production builds use VITE_API_URL instead.
+const apiProxyTarget =
+  process.env.API_PROXY_TARGET ?? 'http://localhost:8080';
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -60,10 +66,22 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    proxy: {
+      '/api': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+    },
   },
 });

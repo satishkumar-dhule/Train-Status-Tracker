@@ -53,6 +53,7 @@ paths:
           required: true
           schema:
             type: string
+            maxLength: 64
           description: Search query (e.g. 229, rajdhani, mumbai rajdhani)
         - name: limit
           in: query
@@ -88,6 +89,7 @@ paths:
           required: true
           schema:
             type: string
+            pattern: '^\d{5}$'
           description: Train number (e.g. 22943)
       responses:
         "200":
@@ -121,6 +123,7 @@ paths:
           required: true
           schema:
             type: string
+            pattern: '^\d{5}$'
           description: Train number (e.g. 22943)
         - name: departure_date
           in: query

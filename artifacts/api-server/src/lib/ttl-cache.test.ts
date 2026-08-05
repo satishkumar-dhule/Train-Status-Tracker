@@ -73,6 +73,55 @@ describe("createTtlCache", () => {
     expect(() => createTtlCache(-1)).toThrow();
   });
 
+  it("rejects a non-positive maxSize", () => {
+    expect(() => createTtlCache(TTL, Date.now, 0)).toThrow();
+    expect(() => createTtlCache(TTL, Date.now, Number.NaN)).toThrow();
+  });
+
+  it("evicts the oldest entry when over maxSize", () => {
+    const { now } = makeNow();
+    const cache = createTtlCache<string>(TTL, now, 2);
+    cache.set("a", "1");
+    cache.set("b", "2");
+    cache.set("c", "3");
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("b")).toBe("2");
+    expect(cache.get("c")).toBe("3");
+  });
+
+  it("prunes expired entries before evicting", () => {
+    const { now, advance } = makeNow();
+    const cache = createTtlCache<string>(TTL, now, 2);
+    cache.set("a", "1");
+    advance(TTL + 1);
+    cache.set("b", "2");
+    cache.set("c", "3");
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("b")).toBe("2");
+    expect(cache.get("c")).toBe("3");
+  });
+
+  it("overwriting an existing key does not consume extra capacity", () => {
+    const { now } = makeNow();
+    const cache = createTtlCache<string>(TTL, now, 2);
+    cache.set("a", "1");
+    cache.set("a", "2");
+    cache.set("b", "3");
+    expect(cache.get("a")).toBe("2");
+    expect(cache.get("b")).toBe("3");
+  });
+
+  it("getOrSet evicts the oldest entry when over maxSize", async () => {
+    const { now } = makeNow();
+    const cache = createTtlCache<string>(TTL, now, 2);
+    cache.set("a", "1");
+    cache.set("b", "2");
+    await cache.getOrSet("c", async () => "3");
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("b")).toBe("2");
+    expect(cache.get("c")).toBe("3");
+  });
+
   it("delete removes a live entry", () => {
     const { now } = makeNow();
     const cache = createTtlCache<string>(TTL, now);

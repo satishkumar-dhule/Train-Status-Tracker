@@ -23,3 +23,15 @@ timeoutMs = 20000
 localPort = 4096
 externalPort = 3000
 exposeLocalhost = true
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[[ports]]
+localPort = 8081
+externalPort = 3001
+
+[[ports]]
+localPort = 23962
+externalPort = 3002

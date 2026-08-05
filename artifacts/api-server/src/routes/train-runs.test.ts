@@ -128,4 +128,17 @@ describe("GET /api/trains/runs", () => {
     expect(res.status).toBe(400);
     expect(typeof res.body.error).toBe("string");
   });
+
+  it("rejects a non-5-digit train_number without probing upstream", async () => {
+    const fetchSpy = vi.fn(async () => successPayload());
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const res = await request(app)
+      .get("/api/trains/runs")
+      .query({ train_number: "22943:20260802" });
+
+    expect(res.status).toBe(400);
+    expect(typeof res.body.error).toBe("string");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

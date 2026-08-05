@@ -133,10 +133,10 @@
   --destructive: 4 75% 44%;
   --destructive-foreground: 0 0% 100%;
 
-  --warning: 38 90% 33%;
+  --warning: 38 90% 30%;
   --warning-foreground: 0 0% 100%;
 
-  --success: 145 60% 33%;
+  --success: 145 55% 30%;
   --success-foreground: 0 0% 100%;
 
   --border: 216 20% 90%;
@@ -249,7 +249,7 @@ html.mode-bw {
   --destructive: 0 0% 26%;
   --destructive-foreground: 0 0% 100%;
 
-  --warning: 0 0% 45%;
+  --warning: 0 0% 38%;
   --warning-foreground: 0 0% 100%;
 
   --success: 0 0% 30%;

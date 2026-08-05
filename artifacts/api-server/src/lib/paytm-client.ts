@@ -5,7 +5,6 @@ import {
   SpanStatusCode,
   ValueType,
   type Counter,
-  type Exception,
   type Histogram,
 } from "@opentelemetry/api";
 import {
@@ -15,6 +14,7 @@ import {
   ATTR_URL_FULL,
 } from "@opentelemetry/semantic-conventions";
 import { performance } from "node:perf_hooks";
+import { redactUrl, sanitizeException } from "./trace-attributes";
 
 const PAYTM_BASE = "https://travel.paytm.com/api/trains/v1/train/status";
 
@@ -113,12 +113,10 @@ export async function fetchPaytmTrainStatus(
   const span = getTracer().startSpan("paytm.train_status.fetch", {
     kind: SpanKind.CLIENT,
     attributes: {
-      [ATTR_URL_FULL]: upstreamUrl.toString(),
+      [ATTR_URL_FULL]: redactUrl(upstreamUrl.toString()),
       [ATTR_HTTP_REQUEST_METHOD]: "GET",
       [ATTR_SERVER_ADDRESS]: upstreamUrl.hostname,
       [ATTR_SERVER_PORT]: Number(upstreamUrl.port) || 443,
-      "paytm.train_number": trainNumber,
-      "paytm.departure_date": departureDate,
     },
   });
 
@@ -143,9 +141,7 @@ export async function fetchPaytmTrainStatus(
     }
 
     if (!upstream.ok) {
-      throw new PaytmUpstreamError(
-        `Paytm returned status ${upstream.status}`,
-      );
+      throw new PaytmUpstreamError(`Paytm returned status ${upstream.status}`);
     }
 
     let raw: unknown;
@@ -165,9 +161,19 @@ export async function fetchPaytmTrainStatus(
         typeof status === "object" && status !== null && "result" in status
           ? String(status.result)
           : "";
-      if (result !== "success") {
+      // Only a positively-confirmed `failure` result is a genuine "train not
+      // found". Anything else the provider flags as errored (transient
+      // outages, empty results, unknown codes) is ambiguous and must surface
+      // as an upstream error — otherwise a momentary glitch gets cached as a
+      // permanent 404 marker shared by all users.
+      if (result === "failure") {
         throw new PaytmTrainNotFoundError(
           "Train not found or no data available",
+        );
+      }
+      if (result !== "success") {
+        throw new PaytmUpstreamError(
+          `Paytm reported an unsuccessful result: "${result}"`,
         );
       }
     }
@@ -188,15 +194,20 @@ export async function fetchPaytmTrainStatus(
           ? body.train_status_message
           : null,
       server_timestamp:
-        typeof body.server_timestamp === "string" ? body.server_timestamp : null,
+        typeof body.server_timestamp === "string"
+          ? body.server_timestamp
+          : null,
     };
   } catch (err) {
     if (err instanceof PaytmTrainNotFoundError) {
       outcome = "not_found";
-      span.setStatus({ code: SpanStatusCode.ERROR, message: "train not found" });
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: "train not found",
+      });
     } else {
       outcome = "upstream_error";
-      span.recordException(err as Exception);
+      span.recordException(sanitizeException(err));
       span.setStatus({ code: SpanStatusCode.ERROR });
     }
     throw err;

@@ -14,11 +14,11 @@ export interface RedisStore {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 200;
 
-/** Default endpoint used when no `REDIS_URL` is configured. */
-const DEFAULT_REDIS_URL = "redis://red-d9pf93e417fc73dppv4g:6379";
-
 /** How often an unreachable Redis is re-probed in auto mode. */
 const DEFAULT_PROBE_INTERVAL_MS = 15 * 60 * 1000;
+
+/** Accepted endpoint URL schemes. Anything else is a misconfiguration. */
+const REDIS_URL_SCHEMES = ["redis://", "rediss://"];
 
 const createdStores: { close?(): Promise<unknown> }[] = [];
 
@@ -48,18 +48,30 @@ export interface RedisConfig {
  * `disabled`/`off`). Otherwise `REDIS_ENABLED=true`/`false` opts in/out for
  * backward compatibility. With neither set, **auto** is the default, so the
  * cache engages by default and gracefully backs off when Redis is unreachable.
+ *
+ * There is deliberately no default endpoint: without a `REDIS_URL` (or when
+ * the value is blank or not a `redis://`/`rediss://` URL) the mode resolves to
+ * `disabled`, so a misconfigured process fails open instead of silently
+ * talking to some unrelated host.
  */
 export function parseRedisConfig(
   env: Record<string, string | undefined>,
 ): RedisConfig {
   const url = env.REDIS_URL?.trim() ?? "";
+  const usableUrl =
+    url !== "" &&
+    REDIS_URL_SCHEMES.some((scheme) => url.startsWith(scheme));
   const rawProbe = Number(env.REDIS_PROBE_INTERVAL_MS ?? DEFAULT_PROBE_INTERVAL_MS);
+  const rawTimeout = Number(
+    env.REDIS_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS,
+  );
   return {
-    mode: parseMode(env.REDIS_MODE, env.REDIS_ENABLED),
-    url: url || DEFAULT_REDIS_URL,
-    commandTimeoutMs: Number(
-      env.REDIS_COMMAND_TIMEOUT_MS ?? DEFAULT_COMMAND_TIMEOUT_MS,
-    ),
+    mode: usableUrl ? parseMode(env.REDIS_MODE, env.REDIS_ENABLED) : "disabled",
+    url,
+    commandTimeoutMs:
+      Number.isFinite(rawTimeout) && rawTimeout > 0
+        ? rawTimeout
+        : DEFAULT_COMMAND_TIMEOUT_MS,
     probeIntervalMs:
       Number.isFinite(rawProbe) && rawProbe > 0
         ? rawProbe
@@ -172,18 +184,22 @@ export function createRedisHealth(
     clearProbe();
   };
 
+  const onClose = (): void => {
+    healthy = false;
+  };
+
+  const onError = (): void => {
+    healthy = false;
+  };
+
   const onEnd = (): void => {
     healthy = false;
     scheduleProbe();
   };
 
   client.on("ready", markHealthy);
-  client.on("close", () => {
-    healthy = false;
-  });
-  client.on("error", () => {
-    healthy = false;
-  });
+  client.on("close", onClose);
+  client.on("error", onError);
   client.on("end", onEnd);
 
   return {
@@ -191,8 +207,8 @@ export function createRedisHealth(
     dispose: () => {
       clearProbe();
       client.off?.("ready", markHealthy);
-      client.off?.("close", markHealthy);
-      client.off?.("error", markHealthy);
+      client.off?.("close", onClose);
+      client.off?.("error", onError);
       client.off?.("end", onEnd);
     },
   };

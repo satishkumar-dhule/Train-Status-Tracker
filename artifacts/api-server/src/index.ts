@@ -1,5 +1,7 @@
 import { initTelemetry, shutdownTelemetry } from "./lib/telemetry";
 import { shutdownRedis } from "./lib/redis-client";
+import { logger } from "./lib/logger";
+import { startServer } from "./server";
 
 const rawPort = process.env["PORT"];
 
@@ -15,17 +17,20 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-await initTelemetry();
-const { default: app } = await import("./app");
-const { logger } = await import("./lib/logger");
+try {
+  await initTelemetry();
+} catch (err) {
+  logger.error({ err }, "Telemetry init failed; continuing without it");
+}
 
-app.listen(port, (err) => {
-  if (err) {
+const { default: app } = await import("./app");
+
+startServer(app, port, {
+  onListening: () => logger.info({ port }, "Server listening"),
+  onError: (err) => {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
-  }
-
-  logger.info({ port }, "Server listening");
+  },
 });
 
 if (process.env.NODE_ENV !== "test") {

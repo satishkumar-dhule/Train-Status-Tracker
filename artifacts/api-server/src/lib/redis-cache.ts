@@ -40,11 +40,20 @@ export interface RedisCacheOptions<T> {
   serialize?: (value: T) => string;
   /** Parses a stored value back into a cached value. Receives the raw value. */
   deserialize?: (raw: string | Buffer) => T;
+  /**
+   * Upper bound on the decompressed (or uncompressed) size of a stored value,
+   * in bytes. Larger values are rejected as unreadable to defend against
+   * decompression bombs. Default: 2 MiB.
+   */
+  maxValueBytes?: number;
 }
 
 const NOT_FOUND_MARKER = "tt:not-found";
 
 const GZIP_MAGIC = Buffer.from([0x1f, 0x8b]);
+
+/** Default upper bound on a stored value's decompressed size. */
+const DEFAULT_MAX_VALUE_BYTES = 2 * 1024 * 1024;
 
 const getMeter = () => metrics.getMeter("train-tracker-api");
 
@@ -90,13 +99,22 @@ export function createRedisTtlCache<T>(
     keyPrefix = "tt",
     compress = false,
     random = Math.random,
+    maxValueBytes = DEFAULT_MAX_VALUE_BYTES,
   } = options;
 
-  if (ttlMs <= 0) throw new Error("ttlMs must be positive");
-  if (negativeTtlMs <= 0) throw new Error("negativeTtlMs must be positive");
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+    throw new Error("ttlMs must be a positive finite number");
+  }
+  if (!Number.isFinite(negativeTtlMs) || negativeTtlMs <= 0) {
+    throw new Error("negativeTtlMs must be a positive finite number");
+  }
+  if (!Number.isFinite(maxValueBytes) || maxValueBytes <= 0) {
+    throw new Error("maxValueBytes must be a positive finite number");
+  }
 
   const serialize = options.serialize ?? defaultSerialize<T>();
-  const deserialize = options.deserialize ?? defaultDeserialize<T>();
+  const deserialize =
+    options.deserialize ?? defaultDeserialize<T>(maxValueBytes);
   const toBuffer = (json: string): string | Buffer =>
     compress ? gzipSync(Buffer.from(json, "utf8")) : json;
 
@@ -108,8 +126,10 @@ export function createRedisTtlCache<T>(
     return Math.max(1, Math.round(baseTtlMs * factor));
   }
 
-  const toSeconds = (ms: number): number =>
-    Math.max(1, Math.round(ms / 1000));
+  const toSeconds = (ms: number): number => {
+    if (!Number.isFinite(ms) || ms <= 0) return 1;
+    return Math.max(1, Math.round(ms / 1000));
+  };
 
   function record(operation: string, outcome: string, startedAt: number): void {
     getRedisRequestsCounter().add(1, { operation, outcome });
@@ -183,6 +203,11 @@ export function createRedisTtlCache<T>(
 
     async set(key: string, value: T, ttlMsOverride?: number): Promise<void> {
       const json = serialize(value);
+      if (json === NOT_FOUND_MARKER) {
+        throw new Error(
+          "serialized value collides with the internal not-found marker",
+        );
+      }
       const raw = toBuffer(json);
       await safeSet(
         "set",
@@ -207,13 +232,18 @@ function defaultSerialize<T>(): (value: T) => string {
   return (value) => JSON.stringify(value);
 }
 
-function defaultDeserialize<T>(): (raw: string | Buffer) => T {
+function defaultDeserialize<T>(
+  maxValueBytes: number,
+): (raw: string | Buffer) => T {
   return (raw) => {
     const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw, "utf8");
+    if (buf.length > maxValueBytes) {
+      throw new Error(`cached value exceeds ${maxValueBytes} bytes`);
+    }
     const compressed =
       buf.length >= 2 && buf[0] === GZIP_MAGIC[0] && buf[1] === GZIP_MAGIC[1];
     const text = compressed
-      ? gunzipSync(buf).toString("utf8")
+      ? gunzipSync(buf, { maxOutputLength: maxValueBytes }).toString("utf8")
       : buf.toString("utf8");
     return JSON.parse(text) as T;
   };

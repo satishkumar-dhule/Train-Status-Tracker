@@ -14,6 +14,11 @@ services:
           name: train-tracker-redis
           type: keyvalue
           property: connectionString
+      - key: CORS_ORIGIN
+        fromService:
+          name: train-tracker
+          type: static
+          envVarKey: RENDER_EXTERNAL_URL
 
   - type: web
     name: train-tracker
