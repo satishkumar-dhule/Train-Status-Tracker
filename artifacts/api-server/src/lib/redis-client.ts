@@ -233,8 +233,9 @@ export function createRedisStore(url?: string): RedisStore | undefined {
 
   const store: RedisStore = {
     isAvailable: () => health.isHealthy(),
-    get: (key) =>
-      client.get(key) as Promise<string | Buffer | null>,
+    // getBuffer preserves binary values (e.g. gzip-compressed payloads) that
+    // `get` would lossily UTF-8-decode into mangled strings.
+    get: (key) => client.getBuffer(key) as Promise<Buffer | null>,
     set: (key, value, ttlSeconds) => client.set(key, value, "EX", ttlSeconds),
     close: () => {
       health.dispose();

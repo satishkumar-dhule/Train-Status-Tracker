@@ -167,7 +167,8 @@ export function createRedisTtlCache<T>(
       const raw = await safeGet(keyOf(key));
       if (raw === null) return { status: "miss" };
 
-      if (typeof raw === "string" && raw === NOT_FOUND_MARKER) {
+      const rawText = Buffer.isBuffer(raw) ? raw.toString("utf8") : raw;
+      if (rawText === NOT_FOUND_MARKER) {
         return { status: "negative" };
       }
 

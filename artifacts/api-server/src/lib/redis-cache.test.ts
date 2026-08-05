@@ -107,6 +107,15 @@ describe("createRedisTtlCache", () => {
     await expect(cache.get(KEY)).resolves.toEqual({ status: "negative" });
   });
 
+  it("reports negative when the store returns the marker as a Buffer", async () => {
+    const { cache, store } = makeCache({ compress: true });
+    store.data.set(`${PREFIX}:${KEY}`, {
+      value: Buffer.from("tt:not-found", "utf8"),
+      ttlSeconds: 60,
+    });
+    await expect(cache.get(KEY)).resolves.toEqual({ status: "negative" });
+  });
+
   it("namespaces keys with the configured prefix", async () => {
     const { cache, store } = makeCache({ keyPrefix: "ns" });
     await cache.set("k", "v");
