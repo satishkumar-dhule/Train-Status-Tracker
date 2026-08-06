@@ -90,17 +90,21 @@ fn days_in_month(year: i32, month: u32) -> u32 {
 }
 
 /// Days since 1970-01-01 for a proleptic Gregorian date (Hinnant's algorithm).
+/// All intermediate arithmetic is `i64` so the mixed-sign day-of-year math
+/// (`yoe * 365 + ... + doy`) never truncates or wraps.
 fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
+    let y = i64::from(if m <= 2 { y - 1 } else { y });
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d - 1;
+    let mp = (i64::from(m) + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + i64::from(d) - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    i64::from(era) * 146_097 + i64::from(doe) - 719_468
+    era * 146_097 + doe - 719_468
 }
 
 /// Inverse of `days_from_civil`: civil date from days since 1970-01-01.
+/// The year/month/day are only narrowed back to `(i32, u32, u32)` once the
+/// full computation has settled in `i64`.
 fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -112,7 +116,7 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
+    (y as i32, m as u32, d as u32)
 }
 
 fn is_iso_date_format(s: &str) -> bool {
@@ -217,7 +221,9 @@ pub fn pick_default_run_date(runs: &[String], now: Option<LocalDate>) -> Option<
             return Some(date.clone());
         }
     }
-    runs.iter().find(|date| date.as_str() > today_api.as_str()).cloned()
+    runs.iter()
+        .find(|date| date.as_str() > today_api.as_str())
+        .cloned()
 }
 
 /// `"YYYY-MM-DD"` for today .. today+count-1.
@@ -243,14 +249,20 @@ pub fn get_date_window(before: i32, after: i32, now: Option<LocalDate>) -> Vec<S
 }
 
 /// `"YYYY-MM-DD"` -> `"2 Aug"`; returns the input unchanged when malformed.
+///
+/// Mirrors the TS `formatShortDate` exactly: only the shape (`YYYY-MM-DD`)
+/// and the coarse month/day ranges are checked — no real-calendar validation,
+/// so `"2026-02-31"` formats as `"31 Feb"` just like the reference.
 pub fn format_short_date(date_iso: &str) -> String {
-    let Some(date) = LocalDate::from_iso(date_iso) else {
-        return date_iso.to_string();
-    };
-    if date.month < 1 || date.month > 12 || date.day < 1 || date.day > 31 {
+    if !is_iso_date_format(date_iso) {
         return date_iso.to_string();
     }
-    format!("{} {}", date.day, SHORT_MONTHS[(date.month - 1) as usize])
+    let month: u32 = date_iso[5..7].parse().unwrap_or(0);
+    let day: u32 = date_iso[8..10].parse().unwrap_or(0);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return date_iso.to_string();
+    }
+    format!("{} {}", day, SHORT_MONTHS[(month - 1) as usize])
 }
 
 /// 510 -> `"8h 30m"`; 45 -> `"45m"`; 480 -> `"8h"`; invalid -> `"--"`.
@@ -267,4 +279,258 @@ pub fn format_duration(total_minutes: f64) -> String {
         return format!("{}h", hours);
     }
     format!("{}h {}m", hours, minutes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn aug5() -> LocalDate {
+        LocalDate {
+            year: 2026,
+            month: 8,
+            day: 5,
+        }
+    }
+
+    // Port of `toMinutes` in time.test.ts.
+    #[test]
+    fn to_minutes_parses_hh_mm() {
+        assert_eq!(to_minutes(Some("08:30")), Some(510));
+        assert_eq!(to_minutes(Some("00:05")), Some(5));
+        assert_eq!(to_minutes(Some("23:59")), Some(1439));
+    }
+
+    #[test]
+    fn to_minutes_returns_none_for_malformed_input() {
+        assert_eq!(to_minutes(None), None);
+        assert_eq!(to_minutes(Some("")), None);
+        assert_eq!(to_minutes(Some("8")), None);
+        assert_eq!(to_minutes(Some("08:30:00")), None);
+        assert_eq!(to_minutes(Some("abc")), None);
+    }
+
+    // Port of `calcDelay` in time.test.ts.
+    #[test]
+    fn calc_delay_computes_a_positive_delay() {
+        assert_eq!(calc_delay(Some("08:00"), Some("08:20")), Some(20));
+    }
+
+    #[test]
+    fn calc_delay_computes_a_negative_delay() {
+        assert_eq!(calc_delay(Some("08:20"), Some("08:00")), Some(-20));
+    }
+
+    #[test]
+    fn calc_delay_handles_midnight_roll_over() {
+        assert_eq!(calc_delay(Some("23:50"), Some("00:10")), Some(20));
+    }
+
+    #[test]
+    fn calc_delay_handles_roll_over_in_the_other_direction() {
+        assert_eq!(calc_delay(Some("00:10"), Some("23:50")), Some(-20));
+    }
+
+    #[test]
+    fn calc_delay_returns_none_when_either_time_is_missing() {
+        assert_eq!(calc_delay(None, Some("08:00")), None);
+        assert_eq!(calc_delay(Some("08:00"), None), None);
+    }
+
+    // Port of the `date helpers` block in time.test.ts.
+    #[test]
+    fn is_valid_departure_date_rejects_malformed_and_nonexistent_dates() {
+        assert!(!is_valid_departure_date("2026-13-01", Some(aug5())));
+        assert!(!is_valid_departure_date("2026-00-10", Some(aug5())));
+        assert!(!is_valid_departure_date("2026-02-30", Some(aug5())));
+        assert!(!is_valid_departure_date("not-a-date", Some(aug5())));
+    }
+
+    #[test]
+    fn is_valid_departure_date_requires_today_or_later() {
+        assert!(is_valid_departure_date("2026-08-05", Some(aug5())));
+        assert!(is_valid_departure_date("2026-08-06", Some(aug5())));
+        assert!(!is_valid_departure_date("2026-08-04", Some(aug5())));
+    }
+
+    #[test]
+    fn is_valid_api_date_accepts_only_real_dates() {
+        assert!(is_valid_api_date("20260805"));
+        assert!(!is_valid_api_date("20261399"));
+        assert!(!is_valid_api_date("20260230"));
+        assert!(!is_valid_api_date("2026085"));
+        assert!(!is_valid_api_date("abcd"));
+    }
+
+    #[test]
+    fn to_api_date_strips_dashes() {
+        assert_eq!(to_api_date("2026-08-05"), "20260805");
+    }
+
+    #[test]
+    fn from_api_date_inserts_dashes() {
+        assert_eq!(from_api_date("20260805"), "2026-08-05");
+        assert_eq!(from_api_date("garbage"), "garbage");
+        assert_eq!(from_api_date("2026085"), "2026085");
+    }
+
+    #[test]
+    fn pick_default_run_date_prefers_today_when_it_is_a_run() {
+        let runs: Vec<String> = vec!["20260803", "20260805", "20260812"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(
+            pick_default_run_date(&runs, Some(aug5())).as_deref(),
+            Some("20260805"),
+        );
+    }
+
+    #[test]
+    fn pick_default_run_date_falls_back_to_most_recent_past_run() {
+        let runs: Vec<String> = vec!["20260804", "20260806"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(
+            pick_default_run_date(&runs, Some(aug5())).as_deref(),
+            Some("20260804"),
+        );
+    }
+
+    #[test]
+    fn pick_default_run_date_falls_back_to_next_run_when_none_are_past() {
+        let runs: Vec<String> = vec!["20260806".to_string()];
+        assert_eq!(
+            pick_default_run_date(&runs, Some(aug5())).as_deref(),
+            Some("20260806"),
+        );
+    }
+
+    #[test]
+    fn pick_default_run_date_returns_none_without_runs() {
+        assert_eq!(pick_default_run_date(&[], Some(aug5())), None);
+    }
+
+    #[test]
+    fn get_upcoming_dates_returns_n_consecutive_local_dates() {
+        assert_eq!(get_upcoming_dates(0, Some(aug5())), Vec::<String>::new());
+        assert_eq!(
+            get_upcoming_dates(3, Some(aug5())),
+            vec!["2026-08-05", "2026-08-06", "2026-08-07"],
+        );
+        let eoy = LocalDate {
+            year: 2026,
+            month: 12,
+            day: 31,
+        };
+        assert_eq!(
+            get_upcoming_dates(2, Some(eoy)),
+            vec!["2026-12-31", "2027-01-01"],
+        );
+    }
+
+    #[test]
+    fn get_date_window_returns_a_symmetric_window_centered_on_today() {
+        assert_eq!(
+            get_date_window(3, 3, Some(aug5())),
+            vec![
+                "2026-08-02",
+                "2026-08-03",
+                "2026-08-04",
+                "2026-08-05",
+                "2026-08-06",
+                "2026-08-07",
+                "2026-08-08",
+            ],
+        );
+        assert_eq!(get_date_window(0, 0, Some(aug5())), vec!["2026-08-05"]);
+        assert_eq!(
+            get_date_window(1, 0, Some(aug5())),
+            vec!["2026-08-04", "2026-08-05"],
+        );
+    }
+
+    #[test]
+    fn get_date_window_crosses_month_and_year_boundaries() {
+        let jan2 = LocalDate {
+            year: 2026,
+            month: 1,
+            day: 2,
+        };
+        assert_eq!(
+            get_date_window(3, 3, Some(jan2)),
+            vec![
+                "2025-12-30",
+                "2025-12-31",
+                "2026-01-01",
+                "2026-01-02",
+                "2026-01-03",
+                "2026-01-04",
+                "2026-01-05",
+            ],
+        );
+    }
+
+    #[test]
+    fn get_date_window_rejects_negative_ranges() {
+        assert_eq!(get_date_window(-1, 3, Some(aug5())), Vec::<String>::new());
+        assert_eq!(get_date_window(3, -1, Some(aug5())), Vec::<String>::new());
+    }
+
+    // Port of `formatShortDate` in time.test.ts.
+    #[test]
+    fn format_short_date_formats_as_day_month() {
+        assert_eq!(format_short_date("2026-08-02"), "2 Aug");
+    }
+
+    #[test]
+    fn format_short_date_returns_input_unchanged_when_malformed() {
+        assert_eq!(format_short_date("garbage"), "garbage");
+        assert_eq!(format_short_date("2026-13-40"), "2026-13-40");
+    }
+
+    // Port of `formatDuration` in time.test.ts.
+    #[test]
+    fn format_duration_formats_minutes_and_hours() {
+        assert_eq!(format_duration(45.0), "45m");
+        assert_eq!(format_duration(480.0), "8h");
+        assert_eq!(format_duration(510.0), "8h 30m");
+    }
+
+    #[test]
+    fn format_duration_handles_invalid_input() {
+        assert_eq!(format_duration(-1.0), "--");
+        assert_eq!(format_duration(f64::NAN), "--");
+        assert_eq!(format_duration(f64::INFINITY), "--");
+    }
+
+    #[test]
+    fn local_date_add_days_round_trips() {
+        // Guards the civil <-> days arithmetic used by every date helper.
+        for (y, m, d) in [
+            (1970, 1, 1),
+            (2024, 2, 29),
+            (2025, 12, 31),
+            (2026, 1, 1),
+            (2026, 8, 5),
+            (2027, 1, 1),
+            (2099, 12, 31),
+        ] {
+            let date = LocalDate::new(y, m, d).unwrap();
+            assert_eq!(date.add_days(0), date);
+            assert_eq!(date.add_days(1).add_days(-1), date);
+            assert_eq!(date.add_days(-1).add_days(1), date);
+            // Walking a whole year forward and back lands on the same date.
+            assert_eq!(date.add_days(366).add_days(-366), date);
+        }
+    }
+
+    #[test]
+    fn leap_year_days_are_correct() {
+        assert!(LocalDate::new(2024, 2, 29).is_some());
+        assert!(LocalDate::new(2023, 2, 29).is_none());
+        assert!(LocalDate::new(2000, 2, 29).is_some());
+        assert!(LocalDate::new(1900, 2, 29).is_none());
+    }
 }

@@ -5,6 +5,13 @@ edition.workspace = true
 license.workspace = true
 description = "HTTP transport client: timeouts, redirect cap, abort, max bytes"
 
+[features]
+default = []
+# Enables the `MockTransport` canned-response test double for provider crates'
+# hermetic tests. Enable as a dev-dependency feature:
+# `tt-provider-http = { path = "../provider-http", features = ["testkit"] }`.
+testkit = []
+
 [dependencies]
 async-trait = "0.1.91"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "json", "stream"] }
@@ -16,3 +23,6 @@ thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["sync", "time", "macros", "rt"] }
 tt-mapper = { version = "0.1.0", path = "../mapper" }
 tt-provider-core = { version = "0.1.0", path = "../provider-core" }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["macros", "rt", "rt-multi-thread", "net", "time", "sync"] }

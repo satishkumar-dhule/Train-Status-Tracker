@@ -34,3 +34,40 @@ pub fn strip_html(s: Option<&str>) -> Option<String> {
         Some(trimmed.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Port of `stripHtml` in text.test.ts.
+    #[test]
+    fn removes_html_tags() {
+        assert_eq!(
+            strip_html(Some("<b>Hello</b> <i>world</i>")).as_deref(),
+            Some("Hello world"),
+        );
+    }
+
+    #[test]
+    fn trims_surrounding_whitespace() {
+        assert_eq!(strip_html(Some("  <p>text</p>  ")).as_deref(), Some("text"));
+    }
+
+    #[test]
+    fn returns_none_for_empty_results() {
+        assert_eq!(strip_html(Some("<b></b>")), None);
+        assert_eq!(strip_html(Some("   ")), None);
+    }
+
+    #[test]
+    fn returns_none_for_falsy_input() {
+        assert_eq!(strip_html(None), None);
+        assert_eq!(strip_html(Some("")), None);
+    }
+
+    #[test]
+    fn unmatched_angle_brackets_survive_like_the_js_regex() {
+        assert_eq!(strip_html(Some("a<b")), Some("a<b".to_string()));
+        assert_eq!(strip_html(Some("a<>b")), Some("a<>b".to_string()));
+    }
+}

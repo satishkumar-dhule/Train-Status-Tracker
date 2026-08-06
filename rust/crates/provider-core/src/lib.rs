@@ -17,7 +17,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tt_mapper::{KnownTrain, MappedStatus};
+use tt_mapper::MappedStatus;
 
 /// Abort token carried on provider requests (mirrors `AbortSignal` in TS).
 ///
@@ -52,7 +52,7 @@ impl AbortSignal {
 
     /// Request cancellation of any in-flight request carrying this signal.
     pub fn abort(&self) {
-        let _ = self.inner.tx.send(true);
+        let _ = self.inner.tx.send_replace(true);
     }
 
     /// Whether [`AbortSignal::abort`] has been called.
@@ -88,7 +88,7 @@ pub struct ProviderFetchOptions {
 /// Context needed to render a human-readable train name on unknown trains.
 /// Defined in `tt-mapper` (next to the payloads it is threaded through) and
 /// re-exported here so the provider seam exposes it under one name.
-pub use tt_mapper::KnownTrain as KnownTrain;
+pub use tt_mapper::KnownTrain;
 
 /// Provider-agnostic error taxonomy for train status upstreams.
 ///
@@ -201,52 +201,46 @@ mod tests {
         }
         async fn fetch_train_status(
             &self,
-            train_number: &str,
-            departure_date: &str,
+            _train_number: &str,
+            _departure_date: &str,
             _options: &ProviderFetchOptions,
             _known_train: Option<&KnownTrain>,
         ) -> Result<MappedStatus, ProviderError> {
-            Err(ProviderError::not_found(self.name).into())?;
-            let _ = (train_number, departure_date);
-            Ok(MappedStatus {
-                train_number: String::new(),
-                train_name: String::new(),
-                departure_date: String::new(),
-                source_station_code: String::new(),
-                source_station_name: String::new(),
-                destination_station_code: String::new(),
-                destination_station_name: String::new(),
-                current_station_code: None,
-                current_station_name: None,
-                current_delay_minutes: None,
-                status_message: None,
-                last_updated: None,
-                stations: vec![],
-            })
+            Err(ProviderError::not_found(self.name))
         }
+    }
+
+    #[test]
+    fn fake_provider_exposes_name_and_enabled() {
+        let provider = FakeProvider {
+            name: "fake",
+            enabled: true,
+        };
+        assert_eq!(provider.name(), "fake");
+        assert!(provider.enabled());
     }
 
     #[test]
     fn error_constructors_and_messages() {
         let not_found = ProviderError::not_found("paytm");
         assert!(matches!(
-            not_found,
+            &not_found,
             ProviderError::NotFound { provider } if provider == "paytm"
         ));
         assert!(not_found.to_string().contains("paytm"));
 
         let upstream = ProviderError::upstream("paytm", "boom");
         assert!(matches!(
-            upstream,
+            &upstream,
             ProviderError::Upstream { provider, message, cause } if provider == "paytm" && message == "boom" && cause.is_none()
         ));
 
-        let caused = ProviderError::upstream_with_cause(
-            "paytm",
-            "boom",
-            std::io::Error::new(std::io::ErrorKind::Other, "root"),
-        );
-        assert!(matches!(&caused, ProviderError::Upstream { cause: Some(_), .. }));
+        let caused =
+            ProviderError::upstream_with_cause("paytm", "boom", std::io::Error::other("root"));
+        assert!(matches!(
+            &caused,
+            ProviderError::Upstream { cause: Some(_), .. }
+        ));
 
         let program = ProviderError::program("bug");
         assert!(matches!(program, ProviderError::Program(_)));
@@ -258,7 +252,9 @@ mod tests {
         assert!(!signal.is_aborted());
 
         let waiter = signal.clone();
-        let handle = tokio::spawn(async move { waiter.cancelled().await; });
+        let handle = tokio::spawn(async move {
+            waiter.cancelled().await;
+        });
 
         signal.abort();
         assert!(signal.is_aborted());

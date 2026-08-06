@@ -7,12 +7,12 @@
 //! process, TTL-cached, and any failure falls back to the bundled [`TRAINS`].
 
 use std::io::Read;
-use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::query::unique_by_number;
-use crate::search::{TrainEntry, TRAINS, search_trains};
+use crate::search::{search_trains, TrainEntry, TRAINS};
 
 /// Upstream source of the official NTES train list (train numbers + names).
 pub const TRAIN_DATA_DEFAULT_URL: &str =
@@ -118,6 +118,12 @@ impl HttpTransport for UreqTransport {
     }
 }
 
+/// Injectable clock: returns milliseconds since the Unix epoch.
+pub type TrainDataClock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+/// Invoked when the upstream load fails and the fallback dataset is used.
+pub type TrainDataErrorHandler = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Options for [`create_train_data_fetcher`]. Every field is optional.
 #[derive(Default)]
 pub struct TrainDataFetcherOptions {
@@ -137,11 +143,11 @@ pub struct TrainDataFetcherOptions {
     /// Dataset used when the upstream fetch fails. Defaults to the bundled list.
     pub fallback: Option<Vec<TrainEntry>>,
     /// Injectable clock (ms since epoch) for tests.
-    pub now: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
+    pub now: Option<TrainDataClock>,
     /// Injectable HTTP transport for tests. Defaults to [`UreqTransport`].
     pub transport: Option<Arc<dyn HttpTransport>>,
     /// Invoked when the upstream load fails and the fallback dataset is used.
-    pub on_error: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub on_error: Option<TrainDataErrorHandler>,
 }
 
 /// A shared in-flight result so concurrent callers wait on one fetch.
@@ -186,8 +192,8 @@ pub struct TrainDataFetcher {
     max_redirects: u32,
     max_response_bytes: usize,
     fallback: Vec<TrainEntry>,
-    now: Arc<dyn Fn() -> u64 + Send + Sync>,
-    on_error: Arc<dyn Fn(&str) + Send + Sync>,
+    now: TrainDataClock,
+    on_error: TrainDataErrorHandler,
     cache: Mutex<Option<(Vec<TrainEntry>, u64)>>,
     in_flight: Mutex<Option<Arc<SharedResult>>>,
 }
@@ -303,10 +309,9 @@ impl TrainDataFetcher {
 
         match rx.recv_timeout(Duration::from_millis(timeout)) {
             Ok(result) => result,
-            Err(RecvTimeoutError::Timeout) => Err(format!(
-                "train data fetch timed out after {}ms",
-                timeout
-            )),
+            Err(RecvTimeoutError::Timeout) => {
+                Err(format!("train data fetch timed out after {}ms", timeout))
+            }
             Err(RecvTimeoutError::Disconnected) => {
                 Err("train data fetch worker panicked".to_string())
             }
@@ -427,7 +432,7 @@ pub fn parse_train_data_js(raw: &str) -> Vec<TrainEntry> {
 /// `"00111- BIRD-SGTY RAPID CARGO"` -> `{ number: "00111", name: "BIRD-SGTY RAPID CARGO" }`.
 fn parse_train_list_entry(raw: &str) -> Option<TrainEntry> {
     let separator = raw.find("- ")?;
-    if separator <= 0 {
+    if separator == 0 {
         return None;
     }
     let number = raw[..separator].trim();
@@ -441,7 +446,7 @@ fn parse_train_list_entry(raw: &str) -> Option<TrainEntry> {
     })
 }
 
-fn default_now() -> Arc<dyn Fn() -> u64 + Send + Sync> {
+fn default_now() -> TrainDataClock {
     Arc::new(|| {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -450,9 +455,8 @@ fn default_now() -> Arc<dyn Fn() -> u64 + Send + Sync> {
     })
 }
 
-fn noop_on_error() -> Arc<dyn Fn(&str) + Send + Sync> {
-    let noop: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|_: &str| {});
-    noop
+fn noop_on_error() -> TrainDataErrorHandler {
+    Arc::new(|_: &str| {})
 }
 
 /// Build a train-data fetcher, validating the hardening options (mirroring the
@@ -475,6 +479,8 @@ pub fn create_train_data_fetcher(
     if timeout_ms == 0 {
         return Err("timeoutMs must be a positive finite number".to_string());
     }
+    // `max_redirects` is `u32` here, so the TS guards (non-integer, < 0) are
+    // enforced by the type system at compile time.
     if max_response_bytes == 0 {
         return Err("maxResponseBytes must be a positive finite number".to_string());
     }
@@ -508,4 +514,521 @@ pub fn create_train_data_fetcher(
         cache: Mutex::new(None),
         in_flight: Mutex::new(None),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::Mutex as StdMutex;
+
+    const SAMPLE_JS: &str = "var arrTrainList = [\"00111- BIRD-SGTY RAPID CARGO\",\n\
+\"12001- Bhopal Shatabdi Express\",\n\
+\"12002- New Delhi Shatabdi Express\",\n\
+\"22943- Indore Intercity SF Express\",\n\
+\"99999- MUMBAI-RAJDHANI EXPRESS\"\n\
+];";
+
+    fn entry(number: &str, name: &str) -> TrainEntry {
+        TrainEntry {
+            number: number.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    fn sample_trains() -> Vec<TrainEntry> {
+        vec![
+            entry("00111", "BIRD-SGTY RAPID CARGO"),
+            entry("12001", "Bhopal Shatabdi Express"),
+            entry("12002", "New Delhi Shatabdi Express"),
+            entry("22943", "Indore Intercity SF Express"),
+            entry("99999", "MUMBAI-RAJDHANI EXPRESS"),
+        ]
+    }
+
+    fn ok_response(body: &str) -> HttpResponse {
+        HttpResponse {
+            status: 200,
+            location: None,
+            body: body.as_bytes().to_vec(),
+        }
+    }
+
+    /// A transport driven by a plain closure; the same shape a real adapter
+    /// (e.g. `UreqTransport`) implements.
+    type MockFetch = Arc<dyn Fn(&str) -> Result<HttpResponse, String> + Send + Sync>;
+
+    struct MockTransport {
+        inner: MockFetch,
+    }
+
+    impl MockTransport {
+        fn new(
+            inner: impl Fn(&str) -> Result<HttpResponse, String> + Send + Sync + 'static,
+        ) -> MockTransport {
+            MockTransport {
+                inner: Arc::new(inner),
+            }
+        }
+    }
+
+    impl HttpTransport for MockTransport {
+        fn fetch(&self, url: &str) -> Result<HttpResponse, String> {
+            (self.inner)(url)
+        }
+    }
+
+    fn counting_transport(count: &Arc<AtomicUsize>, body: &'static str) -> Arc<dyn HttpTransport> {
+        let count = Arc::clone(count);
+        Arc::new(MockTransport::new(move |_url: &str| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(ok_response(body))
+        }))
+    }
+
+    /// A mutable clock, mirroring the `makeNow()` helper in fetcher.test.ts.
+    struct Clock(Arc<AtomicU64>);
+
+    impl Clock {
+        fn new() -> Clock {
+            Clock(Arc::new(AtomicU64::new(1_000_000)))
+        }
+
+        fn advance(&self, ms: u64) {
+            self.0.fetch_add(ms, Ordering::SeqCst);
+        }
+
+        fn as_fn(&self) -> TrainDataClock {
+            let c = Arc::clone(&self.0);
+            Arc::new(move || c.load(Ordering::SeqCst))
+        }
+    }
+
+    /// Records every fail-open notification, mirroring the `onError` spy.
+    struct ErrorRecorder(Arc<StdMutex<Vec<String>>>);
+
+    impl ErrorRecorder {
+        fn new() -> ErrorRecorder {
+            ErrorRecorder(Arc::new(StdMutex::new(Vec::new())))
+        }
+
+        fn messages(&self) -> Vec<String> {
+            self.0.lock().unwrap().clone()
+        }
+
+        fn as_fn(&self) -> TrainDataErrorHandler {
+            let inner = Arc::clone(&self.0);
+            Arc::new(move |message: &str| inner.lock().unwrap().push(message.to_string()))
+        }
+    }
+
+    fn make_fetcher(
+        transport: Arc<dyn HttpTransport>,
+        options: TrainDataFetcherOptions,
+    ) -> TrainDataFetcher {
+        create_train_data_fetcher(TrainDataFetcherOptions {
+            transport: Some(transport),
+            ..options
+        })
+        .expect("fetcher options are valid")
+    }
+
+    // Port of `parseTrainDataJs` in fetcher.test.ts.
+    #[test]
+    fn parses_the_ntes_array_into_entries() {
+        assert_eq!(parse_train_data_js(SAMPLE_JS), sample_trains());
+    }
+
+    #[test]
+    fn splits_on_the_first_dash_space_so_hyphens_inside_names_survive() {
+        let trains = parse_train_data_js("var arrTrainList = [\"00111- BIRD-SGTY RAPID CARGO\"];");
+        assert_eq!(
+            trains.first(),
+            Some(&entry("00111", "BIRD-SGTY RAPID CARGO")),
+        );
+    }
+
+    #[test]
+    fn skips_entries_with_malformed_numbers_or_empty_names() {
+        let raw = "var arrTrainList = [\"12001- Bhopal Shatabdi Express\", \"garbage\", \
+        \"no-dash\", \"1234- short\", \"54321- \"];";
+        assert_eq!(
+            parse_train_data_js(raw),
+            vec![entry("12001", "Bhopal Shatabdi Express")],
+        );
+    }
+
+    #[test]
+    fn returns_empty_for_garbage_input() {
+        assert_eq!(parse_train_data_js("not javascript at all"), Vec::new());
+        assert_eq!(parse_train_data_js("var arrTrainList = {}"), Vec::new());
+        assert_eq!(parse_train_data_js(""), Vec::new());
+    }
+
+    // Port of `buildTrainDataUrl` in fetcher.test.ts.
+    #[test]
+    fn returns_the_base_url_unchanged_without_a_version() {
+        assert_eq!(
+            build_train_data_url(TRAIN_DATA_DEFAULT_URL, None),
+            TRAIN_DATA_DEFAULT_URL,
+        );
+    }
+
+    #[test]
+    fn appends_the_v_query_param() {
+        assert_eq!(
+            build_train_data_url(TRAIN_DATA_DEFAULT_URL, Some("202608051517")),
+            format!("{TRAIN_DATA_DEFAULT_URL}?v=202608051517"),
+        );
+    }
+
+    #[test]
+    fn overrides_an_existing_v_param() {
+        let with_v = build_train_data_url(TRAIN_DATA_DEFAULT_URL, Some("1"));
+        assert_eq!(
+            build_train_data_url(&with_v, Some("2")),
+            format!("{TRAIN_DATA_DEFAULT_URL}?v=2"),
+        );
+    }
+
+    #[test]
+    fn encodes_a_custom_version_value() {
+        assert_eq!(
+            build_train_data_url(TRAIN_DATA_DEFAULT_URL, Some("a b&c")),
+            format!("{TRAIN_DATA_DEFAULT_URL}?v=a+b%26c"),
+        );
+    }
+
+    // Port of `createTrainDataFetcher` in fetcher.test.ts.
+    #[test]
+    fn fetches_parses_and_caches_within_the_ttl() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let fetcher = make_fetcher(
+            counting_transport(&count, SAMPLE_JS),
+            TrainDataFetcherOptions {
+                ttl_ms: Some(TRAIN_DATA_DEFAULT_TTL_MS),
+                ..Default::default()
+            },
+        );
+
+        let first = fetcher.get_trains();
+        let second = fetcher.get_trains();
+
+        assert_eq!(first, sample_trains());
+        assert_eq!(second, first);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn refetches_after_the_ttl_expires() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let clock = Clock::new();
+        let fetcher = make_fetcher(
+            counting_transport(&count, SAMPLE_JS),
+            TrainDataFetcherOptions {
+                ttl_ms: Some(1000),
+                now: Some(clock.as_fn()),
+                ..Default::default()
+            },
+        );
+
+        fetcher.get_trains();
+        clock.advance(1001);
+        fetcher.get_trains();
+
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn single_flights_concurrent_callers() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let count_for_transport = Arc::clone(&count);
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(move |_url: &str| {
+            count_for_transport.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(10));
+            Ok(ok_response(SAMPLE_JS))
+        }));
+        let fetcher = Arc::new(make_fetcher(transport, TrainDataFetcherOptions::default()));
+
+        let handle_a = {
+            let fetcher = Arc::clone(&fetcher);
+            std::thread::spawn(move || fetcher.get_trains())
+        };
+        let handle_b = {
+            let fetcher = Arc::clone(&fetcher);
+            std::thread::spawn(move || fetcher.get_trains())
+        };
+
+        let a = handle_a.join().expect("thread a");
+        let b = handle_b.join().expect("thread b");
+
+        assert_eq!(a, b);
+        assert_eq!(a, sample_trains());
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn falls_back_to_the_bundled_dataset_on_fetch_failure() {
+        let recorder = ErrorRecorder::new();
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(|_url: &str| {
+            Err("fetch failed".to_string())
+        }));
+        let fetcher = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                on_error: Some(recorder.as_fn()),
+                ..Default::default()
+            },
+        );
+
+        let trains = fetcher.get_trains();
+
+        assert_eq!(trains.len(), TRAINS.len());
+        assert_eq!(trains, *TRAINS);
+        assert_eq!(recorder.messages().len(), 1);
+    }
+
+    #[test]
+    fn falls_back_when_the_upstream_returns_a_non_200_response() {
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(|_url: &str| {
+            Ok(HttpResponse {
+                status: 500,
+                location: None,
+                body: b"boom".to_vec(),
+            })
+        }));
+        let fetcher = make_fetcher(transport, TrainDataFetcherOptions::default());
+
+        let trains = fetcher.get_trains();
+        assert_eq!(trains, *TRAINS);
+    }
+
+    #[test]
+    fn falls_back_when_the_payload_is_empty() {
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(|_url: &str| {
+            Ok(ok_response("var arrTrainList = [];"))
+        }));
+        let fallback = vec![entry("12001", "Bhopal Shatabdi Express")];
+        let fetcher = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                fallback: Some(fallback.clone()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(fetcher.get_trains(), fallback);
+    }
+
+    #[test]
+    fn does_not_cache_failures_so_the_next_call_retries() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let transport_count = Arc::clone(&count);
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(move |_url: &str| {
+            let call = transport_count.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                Err("down".to_string())
+            } else {
+                Ok(ok_response(SAMPLE_JS))
+            }
+        }));
+        let fetcher = make_fetcher(transport, TrainDataFetcherOptions::default());
+
+        let first = fetcher.get_trains();
+        let second = fetcher.get_trains();
+
+        assert_ne!(first, sample_trains());
+        assert_eq!(second, sample_trains());
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn uses_a_different_cache_key_when_the_version_changes() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let transport = counting_transport(&count, SAMPLE_JS);
+        let a = make_fetcher(
+            Arc::clone(&transport),
+            TrainDataFetcherOptions {
+                version: Some("1".to_string()),
+                ..Default::default()
+            },
+        );
+        let b = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                version: Some("2".to_string()),
+                ..Default::default()
+            },
+        );
+
+        a.get_trains();
+        b.get_trains();
+
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        assert!(a.source_url().contains("v=1"));
+        assert!(b.source_url().contains("v=2"));
+    }
+
+    #[test]
+    fn rejects_a_non_positive_ttl() {
+        assert!(create_train_data_fetcher(TrainDataFetcherOptions {
+            ttl_ms: Some(0),
+            ..Default::default()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_hardening_options() {
+        assert!(create_train_data_fetcher(TrainDataFetcherOptions {
+            timeout_ms: Some(0),
+            ..Default::default()
+        })
+        .is_err());
+        assert!(create_train_data_fetcher(TrainDataFetcherOptions {
+            max_response_bytes: Some(0),
+            ..Default::default()
+        })
+        .is_err());
+        // `max_redirects` cannot even be negative here: the field is `u32`, so
+        // the TS `maxRedirects < 0` guard is enforced at compile time.
+    }
+
+    #[test]
+    fn aborts_the_upstream_fetch_when_it_exceeds_the_timeout() {
+        let recorder = ErrorRecorder::new();
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(|_url: &str| loop {
+            std::thread::sleep(Duration::from_millis(10_000));
+        }));
+        let fetcher = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                on_error: Some(recorder.as_fn()),
+                timeout_ms: Some(20),
+                ..Default::default()
+            },
+        );
+
+        let trains = fetcher.get_trains();
+
+        assert_eq!(trains, *TRAINS);
+        assert_eq!(recorder.messages().len(), 1);
+        assert!(recorder.messages()[0].contains("timed out"));
+    }
+
+    #[test]
+    fn follows_a_bounded_number_of_redirects_then_succeeds() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let transport_count = Arc::clone(&count);
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(move |url: &str| {
+            transport_count.fetch_add(1, Ordering::SeqCst);
+            if url.contains("enquiry.indianrail.gov.in") {
+                Ok(HttpResponse {
+                    status: 302,
+                    location: Some("https://mirror.example/train_data.js?v=2".to_string()),
+                    body: Vec::new(),
+                })
+            } else {
+                Ok(ok_response(SAMPLE_JS))
+            }
+        }));
+        let fetcher = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                max_redirects: Some(3),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(fetcher.get_trains(), sample_trains());
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn falls_back_when_redirects_exceed_the_cap() {
+        let recorder = ErrorRecorder::new();
+        let count = Arc::new(AtomicUsize::new(0));
+        let transport_count = Arc::clone(&count);
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(move |_url: &str| {
+            transport_count.fetch_add(1, Ordering::SeqCst);
+            Ok(HttpResponse {
+                status: 302,
+                location: Some("https://mirror.example/train_data.js".to_string()),
+                body: Vec::new(),
+            })
+        }));
+        let fetcher = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                on_error: Some(recorder.as_fn()),
+                max_redirects: Some(2),
+                ..Default::default()
+            },
+        );
+
+        let trains = fetcher.get_trains();
+
+        assert_eq!(trains, *TRAINS);
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+        assert_eq!(recorder.messages().len(), 1);
+        assert!(recorder.messages()[0].contains("redirect"));
+    }
+
+    #[test]
+    fn falls_back_when_the_response_body_exceeds_the_byte_cap() {
+        let recorder = ErrorRecorder::new();
+        let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new(|_url: &str| {
+            Ok(ok_response(&"x".repeat(4096)))
+        }));
+        let fetcher = make_fetcher(
+            transport,
+            TrainDataFetcherOptions {
+                on_error: Some(recorder.as_fn()),
+                max_response_bytes: Some(1024),
+                ..Default::default()
+            },
+        );
+
+        let trains = fetcher.get_trains();
+
+        assert_eq!(trains, *TRAINS);
+        assert_eq!(recorder.messages().len(), 1);
+        assert!(recorder.messages()[0].contains("exceeded"));
+    }
+
+    #[test]
+    fn search_runs_the_fuzzy_matcher_against_the_fetched_list() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let fetcher = make_fetcher(
+            counting_transport(&count, SAMPLE_JS),
+            TrainDataFetcherOptions::default(),
+        );
+
+        let by_number = fetcher.search("229", 10);
+        assert_eq!(
+            by_number.first(),
+            Some(&entry("22943", "Indore Intercity SF Express")),
+        );
+
+        let by_name = fetcher.search("shatabdi", 10);
+        assert!(by_name
+            .iter()
+            .any(|t| t.number == "12001" && t.name == "Bhopal Shatabdi Express"));
+    }
+
+    #[test]
+    fn exposes_the_effective_source_url() {
+        let fetcher = create_train_data_fetcher(TrainDataFetcherOptions {
+            version: Some("202608051517".to_string()),
+            transport: Some(Arc::new(MockTransport::new(|_url: &str| {
+                Err("unused".to_string())
+            }))),
+            ..Default::default()
+        })
+        .expect("fetcher options are valid");
+        assert_eq!(
+            fetcher.source_url(),
+            format!("{TRAIN_DATA_DEFAULT_URL}?v=202608051517"),
+        );
+    }
 }
