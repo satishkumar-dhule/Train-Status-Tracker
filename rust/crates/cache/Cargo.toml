@@ -1,0 +1,8 @@
+[package]
+name = "tt-cache"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cache::get/put(key, ttl) hiding L1 TTL single-flight + L2 Redis + gzip"
+
+[dependencies]

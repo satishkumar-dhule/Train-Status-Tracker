@@ -1,0 +1,8 @@
+[package]
+name = "tt-contract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "serde wire types + query-param validation (zod-coercion semantics)"
+
+[dependencies]

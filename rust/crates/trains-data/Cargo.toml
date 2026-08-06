@@ -1,0 +1,8 @@
+[package]
+name = "tt-trains-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "static train dataset, fuzzy search, time/date helpers"
+
+[dependencies]

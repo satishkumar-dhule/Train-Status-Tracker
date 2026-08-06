@@ -1,0 +1,29 @@
+name: rust
+
+on:
+  push:
+    branches: [main, rust-port]
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+  pull_request:
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Gate (fmt + clippy -D warnings)
+        run: make check
+      - name: Test
+        run: make test

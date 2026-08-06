@@ -1,0 +1,8 @@
+[package]
+name = "tt-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "fetch_status_with_failover: unanimity-404, 502, QoS cooldown force-try"
+
+[dependencies]

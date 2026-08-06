@@ -1,0 +1,8 @@
+[package]
+name = "tt-provider-easemytrip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EaseMyTrip upstream adapter"
+
+[dependencies]

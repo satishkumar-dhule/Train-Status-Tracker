@@ -1,0 +1,8 @@
+[package]
+name = "tt-mapper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MappedStatus/MappedStation normalization contract (ZTA untrusted payloads)"
+
+[dependencies]

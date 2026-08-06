@@ -1,0 +1,8 @@
+[package]
+name = "tt-provider-paytm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Paytm upstream adapter + run-date probing"
+
+[dependencies]

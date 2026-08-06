@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/api-server",
+    "crates/cache",
+    "crates/config",
+    "crates/contract",
+    "crates/logging",
+    "crates/mapper",
+    "crates/orchestrator",
+    "crates/provider-core",
+    "crates/provider-easemytrip",
+    "crates/provider-goibibo",
+    "crates/provider-http",
+    "crates/provider-paytm",
+    "crates/provider-railradar",
+    "crates/provider-railyatri",
+    "crates/provider-wimt",
+    "crates/qos",
+    "crates/rate-limit",
+    "crates/telemetry",
+    "crates/trains-data",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rail Saarthi train status tracker — Rust backend"
+
+# Dependencies are added to [workspace.dependencies] as later slices land them
+# (axum, tokio, reqwest, serde, opentelemetry, tracing, redis, ...).
+[workspace.dependencies]
+
+# Shared dev-dependencies for contract / parity tests.
+[workspace.dev-dependencies]
