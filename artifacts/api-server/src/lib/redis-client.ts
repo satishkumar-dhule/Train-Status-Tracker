@@ -1,4 +1,6 @@
 import Redis from "ioredis";
+import { metrics } from "@opentelemetry/api";
+import { logger } from "./logger";
 
 /**
  * Minimal async key-value surface shared by the real ioredis-backed store and
@@ -142,6 +144,24 @@ export function createRedisHealth(
   let probing = false;
   let timer: NodeJS.Timeout | undefined;
 
+  const meter = metrics.getMeter("train-tracker-api");
+  const redisUp = meter.createObservableGauge("redis.up", {
+    description: "1 when the shared Redis client is reachable, else 0.",
+    unit: "1",
+  });
+  redisUp.addCallback((result) => result.observe(healthy ? 1 : 0));
+
+  /** Applies a health change, logging only on transition to avoid spam. */
+  const setHealthy = (next: boolean): void => {
+    if (healthy === next) return;
+    healthy = next;
+    if (next) {
+      logger.info("Redis is available");
+    } else {
+      logger.warn("Redis is unavailable; bypassing cache");
+    }
+  };
+
   const clearProbe = (): void => {
     if (timer !== undefined) {
       clearTimeout(timer);
@@ -162,15 +182,15 @@ export function createRedisHealth(
     probing = true;
     try {
       if (client.status === "ready") {
-        healthy = true;
+        setHealthy(true);
       } else if (client.status === "connecting" || client.status === "connect") {
         // An attempt is already in flight; `ready`/`end` events settle state.
       } else {
         await client.connect();
-        healthy = true;
+        setHealthy(true);
       }
     } catch {
-      healthy = false;
+      setHealthy(false);
     } finally {
       probing = false;
     }
@@ -180,20 +200,20 @@ export function createRedisHealth(
   };
 
   const markHealthy = (): void => {
-    healthy = true;
+    setHealthy(true);
     clearProbe();
   };
 
   const onClose = (): void => {
-    healthy = false;
+    setHealthy(false);
   };
 
   const onError = (): void => {
-    healthy = false;
+    setHealthy(false);
   };
 
   const onEnd = (): void => {
-    healthy = false;
+    setHealthy(false);
     scheduleProbe();
   };
 

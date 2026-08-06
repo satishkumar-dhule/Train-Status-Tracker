@@ -25,8 +25,16 @@ try {
 
 const { default: app } = await import("./app");
 
-startServer(app, port, {
-  onListening: () => logger.info({ port }, "Server listening"),
+const server = startServer(app, port, {
+  onListening: () =>
+    logger.info(
+      {
+        port,
+        env: process.env.NODE_ENV ?? "development",
+        version: process.env.SERVICE_VERSION ?? null,
+      },
+      "Server listening",
+    ),
   onError: (err) => {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -34,12 +42,48 @@ startServer(app, port, {
 });
 
 if (process.env.NODE_ENV !== "test") {
-  const shutdown = async (signal: string) => {
+  /** Max time to drain in-flight requests before forcing the exit. */
+  const DRAIN_TIMEOUT_MS = 10_000;
+
+  /**
+   * Stops accepting new connections, waits for in-flight requests to drain,
+   * then flushes telemetry and Redis before exiting. Bounded by
+   * {@link DRAIN_TIMEOUT_MS} so a hung peer cannot stall shutdown forever.
+   */
+  const beginShutdown = async (signal: string, exitCode = 0) => {
     logger.info({ signal }, "Shutting down");
-    await shutdownTelemetry();
-    await shutdownRedis();
-    process.exit(0);
+    const drain = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, DRAIN_TIMEOUT_MS);
+      server.close(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    await drain;
+    try {
+      await shutdownTelemetry();
+    } catch (err) {
+      logger.error({ err }, "Error during telemetry shutdown");
+    }
+    try {
+      await shutdownRedis();
+    } catch (err) {
+      logger.error({ err }, "Error during Redis shutdown");
+    }
+    process.exit(exitCode);
   };
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
-  process.on("SIGINT", () => void shutdown("SIGINT"));
+
+  process.on("SIGTERM", () => void beginShutdown("SIGTERM"));
+  process.on("SIGINT", () => void beginShutdown("SIGINT"));
+
+  // The last line of defense: log the failure, then run the same graceful
+  // shutdown so buffered telemetry/log lines are not lost, exiting non-zero.
+  process.on("uncaughtException", (err) => {
+    logger.fatal({ err }, "Uncaught exception");
+    void beginShutdown("uncaughtException", 1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    logger.fatal({ err: reason }, "Unhandled promise rejection");
+    void beginShutdown("unhandledRejection", 1);
+  });
 }

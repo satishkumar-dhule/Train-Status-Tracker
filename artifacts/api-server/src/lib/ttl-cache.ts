@@ -1,4 +1,7 @@
-import { metrics, type Counter } from "@opentelemetry/api";
+import {
+  metrics,
+  type Counter,
+} from "@opentelemetry/api";
 
 export interface TtlCache<T> {
   get(key: string): T | undefined;
@@ -34,6 +37,25 @@ const getCacheMissesCounter = (): Counter =>
     },
   ));
 
+let cacheEvictionsCounter: Counter | undefined;
+const getCacheEvictionsCounter = (): Counter =>
+  (cacheEvictionsCounter ??= getMeter().createCounter(
+    "trains.status.cache.evictions",
+    {
+      description: "Entries dropped from the L1 TTL cache (expiry or cap)",
+    },
+  ));
+
+let singleFlightCounter: Counter | undefined;
+const getSingleFlightCounter = (): Counter =>
+  (singleFlightCounter ??= getMeter().createCounter(
+    "trains.status.cache.single_flight",
+    {
+      description:
+        "Times a concurrent caller shared an in-flight cache producer",
+    },
+  ));
+
 /**
  * Zero-dependency in-memory TTL cache. Entries expire lazily — `get`/`has`
  * drop stale entries instead of returning them (fail-closed). `now` is
@@ -58,20 +80,35 @@ export function createTtlCache<T>(
   const store = new Map<string, CacheEntry<T>>();
   const inFlight = new Map<string, Promise<T>>();
 
+  // Reports the current L1 size so cache growth/eviction pressure is visible.
+  const cacheSizeGauge = metrics
+    .getMeter("train-tracker-api")
+    .createObservableGauge("trains.status.cache.size", {
+      description: "Current number of entries in the L1 TTL cache",
+      unit: "{entry}",
+    });
+  cacheSizeGauge.addCallback((result) => result.observe(store.size));
+
   function put(key: string, value: T, expiresAt: number): void {
     store.set(key, { value, expiresAt });
     if (store.size <= maxSize) return;
 
     const t = now();
+    let dropped = 0;
     for (const [entryKey, entry] of store) {
       if (entry.expiresAt <= t) {
         store.delete(entryKey);
+        dropped += 1;
       }
     }
     while (store.size > maxSize) {
       const oldest = store.keys().next().value;
       if (oldest === undefined) break;
       store.delete(oldest);
+      dropped += 1;
+    }
+    if (dropped > 0) {
+      getCacheEvictionsCounter().add(dropped);
     }
   }
 
@@ -113,7 +150,10 @@ export function createTtlCache<T>(
       }
 
       const pending = inFlight.get(key);
-      if (pending) return pending;
+      if (pending) {
+        getSingleFlightCounter().add(1);
+        return pending;
+      }
 
       getCacheMissesCounter().add(1);
 

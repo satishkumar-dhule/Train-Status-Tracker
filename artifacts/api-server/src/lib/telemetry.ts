@@ -11,7 +11,11 @@ import {
   tracing,
   type NodeSDKConfiguration,
 } from "@opentelemetry/sdk-node";
-import { ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from "@opentelemetry/semantic-conventions";
+import {
+  ATTR_DEPLOYMENT_ENVIRONMENT_NAME,
+  ATTR_SERVICE_VERSION,
+} from "@opentelemetry/semantic-conventions";
+import type { Span } from "@opentelemetry/api";
 import { logger } from "./logger";
 import { redactUrl } from "./trace-attributes";
 
@@ -20,8 +24,22 @@ const DEFAULT_OTLP_ENDPOINT = "http://localhost:4318";
 const DEFAULT_SAMPLE_RATIO = 1;
 const DEFAULT_METRIC_EXPORT_INTERVAL_MS = 60_000;
 const DEFAULT_ENVIRONMENT = "development";
+/** Hard cap on the final telemetry shutdown so a hung collector cannot stall the process. */
+const SHUTDOWN_TIMEOUT_MS = 5_000;
 
 const ENABLING_EXPORTER_VALUES = new Set(["otlp", "console"]);
+const ENABLED_VALUE_PATTERN = /^(true|1|yes|on)$/i;
+
+/**
+ * Attribute names stripped from auto-instrumented HTTP/Redis spans. Query
+ * strings carry `train_number` / `departure_date` (user input) and the address
+ * attributes expose client IPs, so both are cleared for PII hygiene.
+ */
+const SPAN_REDACTED_ATTRIBUTES: readonly string[] = [
+  "url.query",
+  "client.address",
+  "network.peer.address",
+];
 
 /**
  * Parsed OpenTelemetry configuration for the API server.
@@ -36,6 +54,8 @@ export interface TelemetryConfig {
   serviceName: string;
   /** `deployment.environment.name` resource attribute. */
   environment: string;
+  /** `service.version` resource attribute (from `SERVICE_VERSION`). */
+  version?: string;
   /** Full OTLP/HTTP endpoint for traces (always ends in `/v1/traces`). */
   tracesEndpoint?: string;
   /** Full OTLP/HTTP endpoint for metrics (always ends in `/v1/metrics`). */
@@ -61,6 +81,15 @@ export interface TelemetryConfig {
 
 let sdk: NodeSDK | undefined;
 let activeConfig: TelemetryConfig | undefined;
+
+/**
+ * Returns whether a raw flag value should be treated as "true". Accepts the
+ * common truthy spellings (`true`, `1`, `yes`, `on`) case-insensitively so a
+ * copy-pasted value like `True` cannot silently disable telemetry.
+ */
+function isTruthy(raw: string | undefined): boolean {
+  return raw !== undefined && ENABLED_VALUE_PATTERN.test(raw.trim());
+}
 
 /**
  * Returns whether an exporter env value (`OTEL_TRACES_EXPORTER` /
@@ -139,7 +168,7 @@ export function parseTelemetryConfig(
   const metricsEndpointRaw = env["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"];
 
   const enabled =
-    env["OTEL_ENABLED"] === "true" ||
+    isTruthy(env["OTEL_ENABLED"]) ||
     (endpointRaw !== undefined && endpointRaw.trim() !== "") ||
     (tracesEndpointRaw !== undefined && tracesEndpointRaw.trim() !== "") ||
     (metricsEndpointRaw !== undefined && metricsEndpointRaw.trim() !== "") ||
@@ -150,6 +179,9 @@ export function parseTelemetryConfig(
     enabled,
     serviceName: env["OTEL_SERVICE_NAME"] ?? DEFAULT_SERVICE_NAME,
     environment: env["NODE_ENV"] ?? DEFAULT_ENVIRONMENT,
+    ...(env["SERVICE_VERSION"] === undefined
+      ? {}
+      : { version: env["SERVICE_VERSION"] }),
     tracesEndpoint:
       tracesEndpointRaw !== undefined && tracesEndpointRaw.trim() !== ""
         ? tracesEndpointRaw
@@ -181,11 +213,29 @@ export function isTelemetryEnabled(): boolean {
   return parseTelemetryConfig(process.env).enabled;
 }
 
-/** Node auto-instrumentations with pino disabled (pino is bundled and
- * unpatchable) and the HTTP request URL redacted to its path. */
+/** Clears query strings (user input) and peer-address attrs off a span. */
+function redactSpan(span: Span): void {
+  for (const attribute of SPAN_REDACTED_ATTRIBUTES) {
+    span.setAttribute(attribute, "");
+  }
+}
+
+/**
+ * Node auto-instrumentations. pino is disabled (it is bundled and
+ * unpatchable). HTTP URLs are redacted to their path so the query string
+ * (`train_number` / `departure_date`) never leaves the process, and peer
+ * address attrs (client IPs) are cleared. Redis command statements are
+ * stripped to the bare command so cache keys (`tt:status:v1:<train>:<date>`)
+ * do not inflate span cardinality. Undici is disabled — the provider transport
+ * (`providers/http.ts`) already emits a redacted manual CLIENT span for every
+ * upstream call, so the auto span would only re-expose the full URL. Host
+ * (cpu/memory/network) and Node runtime (event-loop, GC, heap) metrics are
+ * explicitly enabled since auto-instrumentations-node excludes them by default.
+ */
 function buildInstrumentations() {
   return getNodeAutoInstrumentations({
     "@opentelemetry/instrumentation-pino": { enabled: false },
+    "@opentelemetry/instrumentation-undici": { enabled: false },
     "@opentelemetry/instrumentation-http": {
       applyCustomAttributesOnSpan: (span, request) => {
         // `request` is an IncomingMessage (server) or ClientRequest (client);
@@ -195,18 +245,34 @@ function buildInstrumentations() {
           (request as { url?: unknown }).url ??
           (request as { path?: unknown }).path;
         if (typeof candidate === "string") {
-          span.setAttribute("http.url", redactUrl(candidate));
+          const redacted = redactUrl(candidate);
+          span.setAttribute("url.full", redacted);
+          span.setAttribute("http.url", redacted);
         }
+        redactSpan(span);
       },
     },
+    "@opentelemetry/instrumentation-ioredis": {
+      // Drop the cache key from the `db.statement` span attribute — the args
+      // carry `tt:status:v1:<train>:<date>` user input.
+      dbStatementSerializer: (cmdName) => cmdName,
+    },
+    "@opentelemetry/instrumentation-host-metrics": {
+      enabled: true,
+      metricGroups: ["cpu", "memory", "network"],
+    },
+    "@opentelemetry/instrumentation-runtime-node": { enabled: true },
   });
 }
 
-/** Resource = default resource + deployment environment name. */
+/** Resource = default resource + deployment environment + service version. */
 function buildResource(cfg: TelemetryConfig) {
   return defaultResource().merge(
     resourceFromAttributes({
       [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: cfg.environment,
+      ...(cfg.version === undefined
+        ? {}
+        : { [ATTR_SERVICE_VERSION]: cfg.version }),
     }),
   );
 }
@@ -258,18 +324,40 @@ export async function initTelemetry(
   const cfg = configOverride ?? parseTelemetryConfig(process.env);
   activeConfig = cfg;
   if (!cfg.enabled) {
+    logger.info(
+      {
+        serviceName: cfg.serviceName,
+        environment: cfg.environment,
+        otelEnabled: cfg.enabled,
+      },
+      "Telemetry disabled; logging only",
+    );
     return;
   }
   const nodeSdk = buildSdk(cfg);
   nodeSdk.start();
   sdk = nodeSdk;
+  logger.info(
+    {
+      serviceName: cfg.serviceName,
+      serviceVersion: cfg.version ?? null,
+      environment: cfg.environment,
+      tracesEndpoint: cfg.tracesEndpoint,
+      metricsEndpoint: cfg.metricsEndpoint,
+      traceSampleRatio: cfg.traceSampleRatio,
+      metricExportIntervalMs: cfg.metricExportIntervalMs,
+      instrumentationsEnabled: cfg.enableInstrumentations,
+    },
+    "Telemetry initialized",
+  );
 }
 
 /**
  * Flushes and shuts down the telemetry SDK, restoring the no-op state. Safe to
  * call multiple times and when telemetry was never initialized. Exporter
  * failures during the final flush are logged but never thrown, so a down
- * collector cannot crash the shutdown path.
+ * collector cannot crash the shutdown path. Bounded by
+ * {@link SHUTDOWN_TIMEOUT_MS} so a hung collector cannot stall the process.
  */
 export async function shutdownTelemetry(): Promise<void> {
   activeConfig = undefined;
@@ -278,8 +366,11 @@ export async function shutdownTelemetry(): Promise<void> {
   }
   const nodeSdk = sdk;
   sdk = undefined;
+  const timeout = new Promise<void>((resolve) => {
+    setTimeout(resolve, SHUTDOWN_TIMEOUT_MS);
+  });
   try {
-    await nodeSdk.shutdown();
+    await Promise.race([nodeSdk.shutdown(), timeout]);
   } catch (err) {
     logger.error({ err }, "Error during telemetry shutdown");
   }

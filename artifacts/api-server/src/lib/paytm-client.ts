@@ -96,6 +96,58 @@ function combineSignals(
   return external;
 }
 
+/**
+ * Validate + extract a typed payload from an untrusted Paytm response body.
+ * Shared with the Paytm provider adapter so error classification lives once.
+ * Only a positively-confirmed `failure` result is a genuine "train not found".
+ * Anything else the provider flags as errored (transient outages, empty
+ * results, unknown codes) is ambiguous and must surface as an upstream error —
+ * otherwise a momentary glitch gets cached as a permanent 404 marker shared by
+ * all users.
+ */
+export function parsePaytmResponseBody(raw: unknown): PaytmTrainStatusPayload {
+  if (!raw || typeof raw !== "object") {
+    throw new PaytmUpstreamError("Unexpected response shape from Paytm");
+  }
+
+  if ("error" in raw && raw.error) {
+    const status = "status" in raw ? raw.status : {};
+    const result =
+      typeof status === "object" && status !== null && "result" in status
+        ? String(status.result)
+        : "";
+    if (result === "failure") {
+      throw new PaytmTrainNotFoundError("Train not found or no data available");
+    }
+    if (result !== "success") {
+      throw new PaytmUpstreamError(
+        `Paytm reported an unsuccessful result: "${result}"`,
+      );
+    }
+  }
+
+  if (!("body" in raw) || !raw.body || typeof raw.body !== "object") {
+    throw new PaytmUpstreamError("Unexpected response shape from Paytm");
+  }
+
+  const body = raw.body as Record<string, unknown>;
+  const rawStations = Array.isArray(body.stations) ? body.stations : [];
+
+  return {
+    stations: rawStations as PaytmStation[],
+    current_station:
+      typeof body.current_station === "string" ? body.current_station : null,
+    train_status_message:
+      typeof body.train_status_message === "string"
+        ? body.train_status_message
+        : null,
+    server_timestamp:
+      typeof body.server_timestamp === "string"
+        ? body.server_timestamp
+        : null,
+  };
+}
+
 export async function fetchPaytmTrainStatus(
   trainNumber: string,
   departureDate: string,
@@ -151,53 +203,7 @@ export async function fetchPaytmTrainStatus(
       throw new PaytmUpstreamError("Invalid JSON from Paytm", { cause: err });
     }
 
-    if (!raw || typeof raw !== "object") {
-      throw new PaytmUpstreamError("Unexpected response shape from Paytm");
-    }
-
-    if ("error" in raw && raw.error) {
-      const status = "status" in raw ? raw.status : {};
-      const result =
-        typeof status === "object" && status !== null && "result" in status
-          ? String(status.result)
-          : "";
-      // Only a positively-confirmed `failure` result is a genuine "train not
-      // found". Anything else the provider flags as errored (transient
-      // outages, empty results, unknown codes) is ambiguous and must surface
-      // as an upstream error — otherwise a momentary glitch gets cached as a
-      // permanent 404 marker shared by all users.
-      if (result === "failure") {
-        throw new PaytmTrainNotFoundError(
-          "Train not found or no data available",
-        );
-      }
-      if (result !== "success") {
-        throw new PaytmUpstreamError(
-          `Paytm reported an unsuccessful result: "${result}"`,
-        );
-      }
-    }
-
-    if (!("body" in raw) || !raw.body || typeof raw.body !== "object") {
-      throw new PaytmUpstreamError("Unexpected response shape from Paytm");
-    }
-
-    const body = raw.body as Record<string, unknown>;
-    const rawStations = Array.isArray(body.stations) ? body.stations : [];
-
-    return {
-      stations: rawStations as PaytmStation[],
-      current_station:
-        typeof body.current_station === "string" ? body.current_station : null,
-      train_status_message:
-        typeof body.train_status_message === "string"
-          ? body.train_status_message
-          : null,
-      server_timestamp:
-        typeof body.server_timestamp === "string"
-          ? body.server_timestamp
-          : null,
-    };
+    return parsePaytmResponseBody(raw);
   } catch (err) {
     if (err instanceof PaytmTrainNotFoundError) {
       outcome = "not_found";

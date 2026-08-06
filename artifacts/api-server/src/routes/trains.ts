@@ -22,11 +22,11 @@ import { envPositiveNumber } from "../lib/env";
 import { zodErrorMessage } from "../lib/zod-errors";
 import { sanitizeException } from "../lib/trace-attributes";
 import {
-  fetchPaytmTrainStatus,
-  PaytmTrainNotFoundError,
-  PaytmUpstreamError,
-} from "../lib/paytm-client";
-import { mapStatusResponse } from "../lib/train-status-mapper";
+  TrainStatusNotFoundError,
+  TrainStatusUpstreamError,
+} from "../lib/providers/errors";
+import { fetchStatusWithFailover } from "../lib/providers/orchestrator";
+import { buildStatusProviders } from "../lib/providers/registry";
 
 /** Routes for train running status lookups. */
 const router: IRouter = Router();
@@ -88,6 +88,13 @@ function annotateTrainSpan(result: StatusResult): void {
 }
 
 const statusCache = createTtlCache<TrainStatusPayload>(STATUS_CACHE_L1_TTL_MS);
+
+/**
+ * Train status upstreams in priority order. Configured via
+ * `TRAIN_STATUS_PROVIDERS` (comma-separated) or the default order; the
+ * orchestrator fails over across them on upstream errors.
+ */
+const statusProviders = buildStatusProviders(process.env);
 
 /**
  * Shared, cross-instance cache (Render Key Value) layered under the local
@@ -168,28 +175,27 @@ router.get("/trains/status", async (req, res): Promise<void> => {
         const cached = await redisCache.get(key);
         if (cached.status === "hit") return cached.value;
         if (cached.status === "negative") {
-          throw new PaytmTrainNotFoundError(
+          throw new TrainStatusNotFoundError(
+            "all",
             "Train not found or no data available",
           );
         }
       }
 
       try {
-        const upstream = await fetchPaytmTrainStatus(
+        const upstream = await fetchStatusWithFailover(
+          statusProviders,
           train_number,
           departure_date,
+          {
+            knownTrain: findTrainByNumber(TRAINS, train_number) ?? null,
+          },
         );
-        const mapped = mapStatusResponse(
-          upstream,
-          train_number,
-          departure_date,
-          findTrainByNumber(TRAINS, train_number) ?? null,
-        );
-        const payload = GetTrainStatusResponse.parse(mapped);
+        const payload = GetTrainStatusResponse.parse(upstream);
         await redisCache?.set(key, payload);
         return payload;
       } catch (err) {
-        if (err instanceof PaytmTrainNotFoundError) {
+        if (err instanceof TrainStatusNotFoundError) {
           await redisCache?.setNegative(key);
         }
         throw err;
@@ -199,7 +205,7 @@ router.get("/trains/status", async (req, res): Promise<void> => {
     recordStatusResult("ok");
     res.json(payload);
   } catch (err) {
-    if (err instanceof PaytmTrainNotFoundError) {
+    if (err instanceof TrainStatusNotFoundError) {
       annotateTrainSpan("not_found");
       trace.getActiveSpan()?.setStatus({
         code: SpanStatusCode.ERROR,
@@ -209,7 +215,7 @@ router.get("/trains/status", async (req, res): Promise<void> => {
       res.status(404).json({ error: "Train not found or no data available" });
       return;
     }
-    if (err instanceof PaytmUpstreamError) {
+    if (err instanceof TrainStatusUpstreamError) {
       annotateTrainSpan("upstream_error");
       const span = trace.getActiveSpan();
       span?.recordException(sanitizeException(err));

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import app from "../app";
+import { defaultQosRegistry } from "../lib/providers/qos";
 
 const TRAIN_NUMBER = "22943";
 const DEPARTURE_DATE = "20260802";
@@ -60,6 +61,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  defaultQosRegistry.reset();
 });
 
 describe("GET /api/trains/status", () => {
@@ -152,18 +154,60 @@ describe("GET /api/trains/status", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("returns 404 when the upstream reports the train as unknown", async () => {
-    const fetchSpy = vi.fn(async () =>
-      jsonResponse({ error: true, status: { result: "failure" } }),
-    );
+  it("returns 404 when every provider reports the train as unknown", async () => {
+    // Each upstream has its own "not found" shape; a 404 verdict requires all
+    // of them to agree (a single errored provider must not poison the cache).
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://travel.paytm.com")) {
+        return jsonResponse({ error: true, status: { result: "failure" } });
+      }
+      if (url.startsWith("https://rails-ris.makemytrip.com")) {
+        return jsonResponse({ success: false, error: {} });
+      }
+      if (url.startsWith("https://livestatus.railyatri.in")) {
+        return jsonResponse({ success: false });
+      }
+      if (url.startsWith("https://whereismytrain.in")) {
+        return jsonResponse({ start_date: "02-08-2026", days_schedule: [] });
+      }
+      if (url.startsWith("https://www.easemytrip.com")) {
+        return new Response("<html><body><h1>Train Not Found</h1></body></html>", {
+          status: 200,
+        });
+      }
+      return jsonResponse({ success: false });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    // RailYatri only serves today/yesterday, so use today for a unanimous 404.
+    const now = new Date();
+    const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({ train_number: TRAIN_NUMBER, departure_date: today });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "Train not found or no data available" });
+  });
+
+  it("returns 502 when a provider errors even if another says not-found", async () => {
+    // A single ambiguous/errored provider must not be cached as a 404 marker.
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://travel.paytm.com")) {
+        return jsonResponse({ error: true, status: { result: "failure" } });
+      }
+      return new Response("boom", { status: 500 });
+    });
     vi.stubGlobal("fetch", fetchSpy);
 
     const res = await request(app)
       .get("/api/trains/status")
-      .query({ train_number: TRAIN_NUMBER, departure_date: "20260804" });
+      .query({ train_number: TRAIN_NUMBER, departure_date: "20260809" });
 
-    expect(res.status).toBe(404);
-    expect(res.body).toEqual({ error: "Train not found or no data available" });
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: "Could not reach train data provider" });
   });
 
   it("returns 502 when the upstream request fails", async () => {
@@ -190,6 +234,61 @@ describe("GET /api/trains/status", () => {
 
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: "Could not reach train data provider" });
+  });
+
+  it("fails over to the next provider when the primary errors", async () => {
+    const goibiboBody = {
+      success: true,
+      response: {
+        trainDetails: {
+          trainNumber: TRAIN_NUMBER,
+          trainName: "Indore Intercity SF Express",
+          currentStation: { name: "New Delhi", code: "NDLS" },
+        },
+        lastUpdated: "06-08-2026 12:54:00",
+        stations: [
+          {
+            Station: { name: "Ahmedabad Jn", code: "ADI", expectedPlatformNumber: 1 },
+            HaltMinutes: 20,
+            ArrivalDetails: { scheduledArrivalTime: "22:40", actualArrivalTime: "22:40" },
+            DepartureDetails: { scheduledDepartureTime: "23:00", actualDepartureTime: "23:00" },
+            DayDetails: { dayCount: 1 },
+            Distance: 0,
+          },
+          {
+            Station: { name: "New Delhi", code: "NDLS", expectedPlatformNumber: "3" },
+            HaltMinutes: 10,
+            ArrivalDetails: { scheduledArrivalTime: "08:05", actualArrivalTime: "08:40" },
+            DepartureDetails: { scheduledDepartureTime: "08:15", actualDepartureTime: null },
+            DayDetails: { dayCount: 2 },
+            Distance: 938,
+          },
+        ],
+      },
+    };
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      if (String(input).startsWith("https://travel.paytm.com")) {
+        return new Response("boom", { status: 500 });
+      }
+      return jsonResponse(goibiboBody);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const now = new Date();
+    const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({ train_number: TRAIN_NUMBER, departure_date: today });
+
+    expect(res.status).toBe(200);
+    expect(res.body.train_name).toBe("Indore Intercity SF Express");
+    expect(res.body.stations).toHaveLength(2);
+    expect(res.body.stations[1]).toMatchObject({
+      station_code: "NDLS",
+      delay_minutes: 35,
+      is_current: true,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("coalesces concurrent requests into a single upstream call", async () => {

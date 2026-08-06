@@ -123,7 +123,11 @@ async function getProbeResult(trainNumber: string): Promise<RunWeekdaysResult> {
 
 router.get(
   "/trains/runs",
-  createRateLimitMiddleware(runsRateLimiter, (req) => req.ip ?? "unknown"),
+  createRateLimitMiddleware(
+    runsRateLimiter,
+    (req) => req.ip ?? "unknown",
+    "trains.runs",
+  ),
   async (req, res): Promise<void> => {
     const param = req.query["train_number"];
     if (param === undefined || Array.isArray(param)) {

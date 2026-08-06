@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gzipSync } from "node:zlib";
 import request from "supertest";
 import app from "../app";
+import { defaultQosRegistry } from "../lib/providers/qos";
 
 const TRAIN_NUMBER = "22943";
 const REDIS_PREFIX = "tt:status:v1";
@@ -131,6 +132,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fakeStore.available = true;
   fakeStore.data.clear();
+  defaultQosRegistry.reset();
 });
 
 afterEach(() => {
@@ -201,22 +203,44 @@ describe("GET /api/trains/status with Redis cache", () => {
   });
 
   it("caches not-found results so repeat lookups skip the upstream", async () => {
-    const fetchSpy = vi.fn(async () =>
-      jsonResponse({ error: true, status: { result: "failure" } }),
-    );
+    // A 404 verdict requires every provider to agree, so each upstream gets
+    // its own "not found" response. RailYatri only serves today/yesterday.
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://travel.paytm.com")) {
+        return jsonResponse({ error: true, status: { result: "failure" } });
+      }
+      if (url.startsWith("https://rails-ris.makemytrip.com")) {
+        return jsonResponse({ success: false, error: {} });
+      }
+      if (url.startsWith("https://livestatus.railyatri.in")) {
+        return jsonResponse({ success: false });
+      }
+      if (url.startsWith("https://whereismytrain.in")) {
+        return jsonResponse({ start_date: "02-08-2026", days_schedule: [] });
+      }
+      if (url.startsWith("https://www.easemytrip.com")) {
+        return new Response(
+          "<html><body><h1>Not Found</h1></body></html>",
+          { status: 200 },
+        );
+      }
+      return jsonResponse({ success: false });
+    });
     vi.stubGlobal("fetch", fetchSpy);
 
-    const query = { train_number: TRAIN_NUMBER, departure_date: "20260806" };
+    const now = new Date();
+    const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const query = { train_number: TRAIN_NUMBER, departure_date: today };
     const first = await request(app).get("/api/trains/status").query(query);
     expect(first.status).toBe(404);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fakeStore.data.get(redisKey("20260806"))!.value).toBe(
-      "tt:not-found",
-    );
+    const callsAfterFirst = fetchSpy.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+    expect(fakeStore.data.get(redisKey(today))!.value).toBe("tt:not-found");
 
     const second = await request(app).get("/api/trains/status").query(query);
     expect(second.status).toBe(404);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls.length).toBe(callsAfterFirst);
   });
 
   it("surfaces upstream failures as 502 even with Redis available", async () => {

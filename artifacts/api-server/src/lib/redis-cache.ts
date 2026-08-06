@@ -147,10 +147,10 @@ export function createRedisTtlCache<T>(
         return null;
       }
       const raw = await store.get(key);
+      // The `hit` outcome is decided by the caller so a negative marker is not
+      // conflated with a real hit; `miss`/`error`/`unavailable` are final here.
       if (raw === null) {
         record("get", "miss", startedAt);
-      } else {
-        record("get", "hit", startedAt);
       }
       return raw;
     } catch (err) {
@@ -184,18 +184,22 @@ export function createRedisTtlCache<T>(
     isAvailable: () => store.isAvailable(),
 
     async get(key: string): Promise<CacheResult<T>> {
+      const startedAt = performance.now();
       const raw = await safeGet(keyOf(key));
       if (raw === null) return { status: "miss" };
 
       const rawText = Buffer.isBuffer(raw) ? raw.toString("utf8") : raw;
       if (rawText === NOT_FOUND_MARKER) {
+        record("get", "negative", startedAt);
         return { status: "negative" };
       }
 
       try {
-        return { status: "hit", value: deserialize(raw) };
+        const value = deserialize(raw);
+        record("get", "hit", startedAt);
+        return { status: "hit", value };
       } catch (err) {
-        record("deserialize", "error", performance.now());
+        record("deserialize", "error", startedAt);
         options.onError?.(err, "deserialize", key);
         return { status: "miss" };
       }

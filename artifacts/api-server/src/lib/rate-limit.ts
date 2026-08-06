@@ -1,4 +1,5 @@
 import type { Request, RequestHandler, Response } from "express";
+import { metrics, type Counter } from "@opentelemetry/api";
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -22,6 +23,20 @@ export interface RateLimitOptions {
 }
 
 const DEFAULT_MAX_KEYS = 10_000;
+
+const getMeter = () => metrics.getMeter("train-tracker-api");
+let decisionsCounter: Counter | undefined;
+/** Counts rate-limit decisions; the client key is deliberately NOT an
+ * attribute (it is high-cardinality user input), only the decision is. */
+function getDecisionsCounter(): Counter {
+  return (decisionsCounter ??= getMeter().createCounter(
+    "app.rate_limit.decisions",
+    {
+      description: "Rate-limit decisions by outcome.",
+      unit: "{decision}",
+    },
+  ));
+}
 
 /**
  * Zero-dependency fixed-window rate limiter keyed by an arbitrary string
@@ -75,23 +90,35 @@ export function createRateLimiter(options: RateLimitOptions): RateLimiter {
 /**
  * Express middleware enforcing `limiter` per request. Blocked requests receive
  * `429 Too Many Requests` with a `Retry-After` header; the response is marked
- * non-cacheable.
+ * non-cacheable. Each decision increments a metric and blocked requests are
+ * logged with their retry-after window so 429s are traceable.
  */
 export function createRateLimitMiddleware(
   limiter: RateLimiter,
   keyFor: (req: Request) => string,
+  routeLabel?: string,
 ): RequestHandler {
   return (req: Request, res: Response, next) => {
     const result = limiter.check(keyFor(req));
     if (!result.allowed) {
-      res.setHeader("Cache-Control", "no-store");
-      res.setHeader(
-        "Retry-After",
-        String(Math.ceil(result.retryAfterMs / 1000)),
+      const retryAfterSeconds = Math.ceil(result.retryAfterMs / 1000);
+      getDecisionsCounter().add(1, {
+        result: "denied",
+        ...(routeLabel === undefined ? {} : { route: routeLabel }),
+      });
+      req.log?.warn(
+        { retryAfterMs: result.retryAfterMs },
+        "Rate limit exceeded",
       );
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Retry-After", String(retryAfterSeconds));
       res.status(429).json({ error: "Too many requests" });
       return;
     }
+    getDecisionsCounter().add(1, {
+      result: "allowed",
+      ...(routeLabel === undefined ? {} : { route: routeLabel }),
+    });
     next();
   };
 }

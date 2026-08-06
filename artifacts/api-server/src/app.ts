@@ -1,9 +1,14 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import router from "./routes";
 import { createRequestIdGenerator, logger } from "./lib/logger";
-import { redactUrl } from "./lib/trace-attributes";
+import { redactUrl, sanitizeException } from "./lib/trace-attributes";
+import {
+  changeActiveRequests,
+  observeRequestCompletion,
+} from "./lib/http-metrics";
 
 type SerializedError = {
   name: string;
@@ -78,7 +83,16 @@ export function buildCorsOptions(
       callback(null, permissive || origins.includes(origin));
     },
     methods: ["GET"],
-    allowedHeaders: ["Content-Type", "x-request-id"],
+    allowedHeaders: [
+      "Content-Type",
+      "x-request-id",
+      // W3C trace context so the SPA can propagate traceparent/tracestate
+      // across origins and correlate browser RUM with API traces.
+      "traceparent",
+      "tracestate",
+      "baggage",
+    ],
+    exposedHeaders: ["x-request-id"],
     maxAge: 86_400,
   };
 }
@@ -153,6 +167,28 @@ app.use((_req, res, next) => {
 });
 app.use(express.json());
 
+// App-level RED metrics: duration by route + concurrent-request gauge. The
+// route label is resolved at finish time so it reflects the Express pattern
+// (e.g. `/trains/status`), with `unmatched` for 404/error paths.
+app.use((req, res, next) => {
+  const startTime = performance.now();
+  changeActiveRequests(1);
+  res.on("finish", () => {
+    changeActiveRequests(-1);
+    const route =
+      typeof req.route?.path === "string" ? req.route.path : "unmatched";
+    observeRequestCompletion(startTime, {
+      "http.request.method": req.method,
+      "http.response.status_code": res.statusCode,
+      "url.route": route,
+      ...(res.statusCode >= 500
+        ? { "error.type": `HTTP ${res.statusCode}` }
+        : {}),
+    });
+  });
+  next();
+});
+
 app.use("/api", router);
 
 app.use((_req, res) => {
@@ -167,8 +203,17 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
-    req.log.error({ err, requestId: req.id }, "Unhandled error");
     const status = resolveErrorStatus(err);
+    // Reflect the real status on the response object before logging so pino-http
+    // logs at error level and `customErrorMessage` fires, instead of a misleading
+    // "request completed" for 500s.
+    res.statusCode = status;
+    (res as { err?: unknown }).err = err;
+    // Mark the active request span (auto http server span) as errored.
+    const span = trace.getActiveSpan();
+    span?.setStatus({ code: SpanStatusCode.ERROR });
+    span?.recordException(sanitizeException(err));
+    req.log.error({ err, requestId: req.id }, "Unhandled error");
     res.setHeader("Cache-Control", "no-store");
     res.status(status).json({ error: errorMessage(status) });
   },
