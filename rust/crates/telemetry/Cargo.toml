@@ -5,4 +5,20 @@ edition.workspace = true
 license.workspace = true
 description = "OpenTelemetry init, spans, RED metrics, W3C propagation"
 
+[features]
+default = []
+# Real OpenTelemetry SDK + OTLP/HTTP exporters. OFF by default so `cargo test`
+# and CI stay fast; the no-op path compiles with zero heavy OTel deps.
+otlp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+]
+
 [dependencies]
+tt-config = { path = "../config" }
+tracing = "0.1"
+
+opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"], optional = true }

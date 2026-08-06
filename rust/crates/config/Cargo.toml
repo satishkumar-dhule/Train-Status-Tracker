@@ -6,3 +6,4 @@ license.workspace = true
 description = "typed Config parsed from environment"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }

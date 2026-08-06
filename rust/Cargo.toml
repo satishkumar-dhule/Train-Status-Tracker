@@ -32,5 +32,4 @@ description = "Rail Saarthi train status tracker — Rust backend"
 # (axum, tokio, reqwest, serde, opentelemetry, tracing, redis, ...).
 [workspace.dependencies]
 
-# Shared dev-dependencies for contract / parity tests.
-[workspace.dev-dependencies]
+

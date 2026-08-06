@@ -6,3 +6,5 @@ license.workspace = true
 description = "structured JSON logger (pino-equivalent)"
 
 [dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
