@@ -165,9 +165,28 @@ components:
   schemas:
     HealthStatus:
       type: object
+      description: Readiness payload; the endpoint always returns 200 while the
+        process is up, and dependency state is reported per-check for diagnostics.
       properties:
         status:
           type: string
+        redis:
+          type: string
+          enum:
+            - up
+            - down
+            - disabled
+          description: Shared Redis cache availability
+        uptime_seconds:
+          type: integer
+          description: Process uptime in whole seconds
+        version:
+          type: string
+          nullable: true
+          description: SERVICE_VERSION env value
+        timestamp:
+          type: string
+          description: ISO-8601 generation time
       required:
         - status
 

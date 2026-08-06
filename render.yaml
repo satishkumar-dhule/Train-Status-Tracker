@@ -19,6 +19,22 @@ services:
           name: train-tracker
           type: static
           envVarKey: RENDER_EXTERNAL_URL
+      - key: SERVICE_VERSION
+        fromService:
+          name: train-tracker-api
+          type: web
+          envVarKey: RENDER_SERVICE_ID
+      # OpenTelemetry stays disabled by default (no exporter configured).
+      # To enable, set OTEL_EXPORTER_OTLP_ENDPOINT to a collector
+      # (e.g. https://otlp.mycollector.example:4318); the API then exports
+      # traces and metrics to {endpoint}/v1/traces and /v1/metrics.
+      # Optional tuning:
+      #   - key: OTEL_TRACE_SAMPLE_RATIO
+      #     value: "0.1"
+      #   - key: OTEL_METRIC_EXPORT_INTERVAL_MS
+      #     value: "60000"
+      #   - key: OTEL_EXPORTER_OTLP_HEADERS
+      #     value: "Authorization=Bearer <token>"
 
   - type: web
     name: train-tracker
@@ -32,6 +48,12 @@ services:
           name: train-tracker-api
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+      # RUM telemetry is inert without an OTLP endpoint. Point both at the same
+      # collector to enable:
+      #   - key: VITE_OTEL_ENABLED
+      #     value: "true"
+      #   - key: VITE_OTEL_EXPORTER_OTLP_ENDPOINT
+      #     value: https://otlp.mycollector.example:4318
 
   - type: keyvalue
     name: train-tracker-redis

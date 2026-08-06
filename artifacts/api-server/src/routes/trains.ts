@@ -12,8 +12,11 @@ import {
   metrics,
   trace,
   SpanStatusCode,
+  ValueType,
   type Counter,
+  type Histogram,
 } from "@opentelemetry/api";
+import { performance } from "node:perf_hooks";
 import { createTtlCache } from "../lib/ttl-cache";
 import { logger } from "../lib/logger";
 import { createRedisStore } from "../lib/redis-client";
@@ -81,6 +84,18 @@ const getStatusRequestsCounter = (): Counter =>
 function recordStatusResult(result: StatusResult): void {
   getStatusRequestsCounter().add(1, { result });
 }
+
+let lookupDurationHistogram: Histogram | undefined;
+const getLookupDurationHistogram = (): Histogram =>
+  (lookupDurationHistogram ??= getMeter().createHistogram(
+    "trains.status.lookup.duration",
+    {
+      description:
+        "End-to-end train status lookup latency by cache source (l1/redis/upstream)",
+      unit: "s",
+      valueType: ValueType.DOUBLE,
+    },
+  ));
 
 function annotateTrainSpan(result: StatusResult): void {
   const span = trace.getActiveSpan();
@@ -170,11 +185,19 @@ router.get("/trains/status", async (req, res): Promise<void> => {
   const key = `${train_number}:${departure_date}`;
 
   try {
+    // Which layer satisfied the lookup: in-process L1, shared Redis L2, or a
+    // live upstream fetch (matters for latency expectations and cache health).
+    let source: "l1" | "redis" | "upstream" = "l1";
+    const startedAt = performance.now();
     const payload = await statusCache.getOrSet(key, async () => {
       if (redisCache) {
         const cached = await redisCache.get(key);
-        if (cached.status === "hit") return cached.value;
+        if (cached.status === "hit") {
+          source = "redis";
+          return cached.value;
+        }
         if (cached.status === "negative") {
+          source = "redis";
           throw new TrainStatusNotFoundError(
             "all",
             "Train not found or no data available",
@@ -182,6 +205,7 @@ router.get("/trains/status", async (req, res): Promise<void> => {
         }
       }
 
+      source = "upstream";
       try {
         const upstream = await fetchStatusWithFailover(
           statusProviders,
@@ -201,6 +225,11 @@ router.get("/trains/status", async (req, res): Promise<void> => {
         throw err;
       }
     });
+    getLookupDurationHistogram().record(
+      (performance.now() - startedAt) / 1000,
+      { source },
+    );
+    trace.getActiveSpan()?.setAttribute("trains.source", source);
     annotateTrainSpan("ok");
     recordStatusResult("ok");
     res.json(payload);

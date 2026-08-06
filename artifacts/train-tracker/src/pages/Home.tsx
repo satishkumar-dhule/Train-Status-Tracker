@@ -1,6 +1,4 @@
 import { useEffect, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { getGetTrainStatusQueryKey } from "@workspace/api-client-react";
 import type {
   StationStatus,
   TrainStatusResponse,
@@ -34,6 +32,7 @@ import { TrainIllustration } from "@/components/TrainIllustration";
 import { RecentChips } from "@/components/recent-chips";
 import { useRecentSearches } from "@/hooks/use-recent-searches";
 import { useTrainStatus } from "@/hooks/use-train-status";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useTrainRuns } from "@/hooks/use-train-runs";
 import { useTrainCatalog } from "@/hooks/use-train-catalog";
 import { useTrainSearch } from "@/hooks/use-train-search";
@@ -47,6 +46,7 @@ import { StatusMessage } from "@/components/status/status-message";
 import { StatusSkeleton } from "@/components/status/status-skeleton";
 import { TrackView } from "@/components/status/track-view";
 import { ViewToggle } from "@/components/status/view-toggle";
+import { RefreshControls } from "@/components/status/refresh-controls";
 import { useViewPreference } from "@/hooks/use-view-preference";
 
 /** A running-status payload stops being "live" once it is this old. */
@@ -97,8 +97,8 @@ export default function Home() {
   const { t } = useI18n();
   const { recent, addRecent } = useRecentSearches();
   const { trains } = useTrainCatalog();
-  const queryClient = useQueryClient();
   const [view, setView] = useViewPreference();
+  const [autoRefresh, setAutoRefresh] = useAutoRefresh();
 
   const {
     trainNo,
@@ -184,8 +184,8 @@ export default function Home() {
         (runs.length === 0 ||
           runs.includes(apiParams.departure_date))));
 
-  const { data, isLoading, isFetching, isError, isPlaceholderData, messageKey } =
-    useTrainStatus(searched ? apiParams : null, statusEnabled);
+  const { data, isLoading, isFetching, isError, isPlaceholderData, messageKey, refetch } =
+    useTrainStatus(searched ? apiParams : null, statusEnabled, autoRefresh);
 
   // While the status query is held (run dates still loading, or the selected
   // date not yet resolved onto a run day) show a skeleton instead of nothing.
@@ -198,10 +198,8 @@ export default function Home() {
     !!data.last_updated &&
     Date.now() - Date.parse(data.last_updated) <= LIVE_DATA_TTL_MS;
 
-  const handleRetry = () => {
-    queryClient.invalidateQueries({
-      queryKey: getGetTrainStatusQueryKey(apiParams),
-    });
+  const handleRefresh = () => {
+    void refetch();
   };
 
   // Derived journey facts from the running-status payload.
@@ -381,25 +379,33 @@ export default function Home() {
               data-testid="train-identity-hero"
             >
               <TrainIdentityBlock data={data} stations={stations} />
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                {isPlaceholderData ? (
-                  <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
-                    <Clock className="w-3.5 h-3.5 animate-spin" />
-                    {t("status.refreshing")}
-                  </div>
-                ) : (
-                  data.last_updated && (
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <div className="min-w-0">
+                  {isPlaceholderData ? (
                     <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
-                      <Clock className="w-3.5 h-3.5" />
-                      {t("status.updated", {
-                        time: new Date(data.last_updated).toLocaleTimeString(
-                          [],
-                          { hour: "2-digit", minute: "2-digit" },
-                        ),
-                      })}
+                      <Clock className="w-3.5 h-3.5 animate-spin" />
+                      {t("status.refreshing")}
                     </div>
-                  )
-                )}
+                  ) : (
+                    data.last_updated && (
+                      <div className="text-xs text-muted-foreground font-mono flex items-center gap-1 uppercase tracking-widest">
+                        <Clock className="w-3.5 h-3.5" />
+                        {t("status.updated", {
+                          time: new Date(data.last_updated).toLocaleTimeString(
+                            [],
+                            { hour: "2-digit", minute: "2-digit" },
+                          ),
+                        })}
+                      </div>
+                    )
+                  )}
+                </div>
+                <RefreshControls
+                  isFetching={isFetching}
+                  autoRefresh={autoRefresh}
+                  onRefresh={handleRefresh}
+                  onAutoRefreshChange={setAutoRefresh}
+                />
               </div>
             </div>
           )}
@@ -469,7 +475,7 @@ export default function Home() {
                 {t(errorKey)}
               </p>
               <Button
-                onClick={handleRetry}
+                onClick={handleRefresh}
                 className="font-mono uppercase tracking-widest mt-2"
                 data-testid="status-retry"
               >

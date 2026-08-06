@@ -68,18 +68,18 @@ const getTracer = () => trace.getTracer("train-tracker-api", "0.0.0");
 let upstreamRequestsCounter: Counter | undefined;
 const getUpstreamRequestsCounter = (): Counter =>
   (upstreamRequestsCounter ??= getMeter().createCounter(
-    "trains.status.upstream.requests",
+    "trains.runs.upstream.requests",
     {
-      description: "Paytm upstream API calls by outcome",
+      description: "Paytm run-date probe calls by outcome",
     },
   ));
 
 let upstreamDurationHistogram: Histogram | undefined;
 const getUpstreamDurationHistogram = (): Histogram =>
   (upstreamDurationHistogram ??= getMeter().createHistogram(
-    "trains.status.upstream.duration",
+    "trains.runs.upstream.duration",
     {
-      description: "Paytm upstream API call latency",
+      description: "Paytm run-date probe latency",
       unit: "s",
       valueType: ValueType.DOUBLE,
     },

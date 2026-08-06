@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { metrics, type Counter, type Histogram, type Meter } from "@opentelemetry/api";
 import type { MappedStatus } from "../train-status-mapper";
 import {
   TrainStatusNotFoundError,
@@ -7,6 +8,32 @@ import {
 import { fetchStatusWithFailover } from "./orchestrator";
 import { defaultQosRegistry, QosRegistry } from "./qos";
 import type { TrainStatusProvider } from "./types";
+
+const counterAdds: Array<{
+  name: string;
+  value: number;
+  attributes: Record<string, string | number>;
+}> = [];
+metrics.setGlobalMeterProvider({
+  getMeter: (): Meter =>
+    ({
+      createCounter: (name: string): Counter => ({
+        add: (value: number, attributes?: Record<string, string | number>) => {
+          counterAdds.push({ name, value, attributes: attributes ?? {} });
+        },
+      }),
+      createHistogram: (name: string): Histogram => ({
+        record: (
+          _value: number,
+          _attributes?: Record<string, string | number>,
+        ) => {},
+      }),
+    }) as Meter,
+});
+
+beforeEach(() => {
+  counterAdds.length = 0;
+});
 
 function mappedStatus(trainName: string): MappedStatus {
   return {
@@ -87,6 +114,40 @@ describe("fetchStatusWithFailover", () => {
     await expect(
       fetchStatusWithFailover([a, b], "22943", "20260802"),
     ).rejects.toThrow(TrainStatusNotFoundError);
+  });
+
+  it("records a failover metric when a later provider recovers", async () => {
+    const a = makeProvider("a", { upstreamError: true });
+    const b = makeProvider("b");
+
+    const status = await fetchStatusWithFailover([a, b], "22943", "20260802");
+
+    expect(status.train_name).toBe("from b");
+    const recorded = counterAdds.find(
+      (c) => c.name === "app.provider.failover",
+    );
+    expect(recorded).toEqual({
+      name: "app.provider.failover",
+      value: 1,
+      attributes: { outcome: "recovered", attempts: 2 },
+    });
+  });
+
+  it("records a failover metric when every provider reports not-found", async () => {
+    const a = makeProvider("a", { notFound: true });
+    const b = makeProvider("b", { notFound: true });
+
+    await expect(
+      fetchStatusWithFailover([a, b], "22943", "20260802"),
+    ).rejects.toThrow(TrainStatusNotFoundError);
+
+    const recorded = counterAdds.find(
+      (c) => c.name === "app.provider.failover",
+    );
+    expect(recorded?.attributes).toEqual({
+      outcome: "not_found",
+      attempts: 2,
+    });
   });
 
   it("throws an upstream error when one provider errors and another says not-found", async () => {

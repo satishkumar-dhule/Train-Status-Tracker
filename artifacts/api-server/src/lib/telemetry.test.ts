@@ -4,7 +4,9 @@ import {
   metrics as sdkMetrics,
   tracing as sdkTracing,
 } from "@opentelemetry/sdk-node";
+import { logger } from "./logger";
 import {
+  buildResource,
   initTelemetry,
   isTelemetryEnabled,
   parseTelemetryConfig,
@@ -141,6 +143,16 @@ describe("parseTelemetryConfig", () => {
     });
     expect(cfg.serviceName).toBe("custom");
     expect(cfg.environment).toBe("production");
+  });
+
+  it("leaves version unset when SERVICE_VERSION is absent", () => {
+    expect(parseTelemetryConfig(EMPTY_ENV).version).toBeUndefined();
+  });
+
+  it("reads SERVICE_VERSION into the version field", () => {
+    expect(
+      parseTelemetryConfig({ SERVICE_VERSION: "1.2.3" }).version,
+    ).toBe("1.2.3");
   });
 
   it("defaults the trace sample ratio to 1", () => {
@@ -281,6 +293,34 @@ describe("initTelemetry", () => {
       } finally {
         await shutdownTelemetry();
       }
+    });
+
+    it("logs startup details including the service version", async () => {
+      const infoSpy = vi.spyOn(logger, "info");
+      try {
+        await initTelemetry(enabledConfig({ version: "2.0.0" }));
+        const call = infoSpy.mock.calls.find(([payload]) => {
+          const fields = payload as Record<string, unknown>;
+          return (
+            typeof fields === "object" &&
+            fields !== null &&
+            fields.serviceName === "test-service"
+          );
+        });
+        expect(call).toBeDefined();
+        const logged = (call?.[0] ?? {}) as Record<string, unknown>;
+        expect(logged.serviceVersion).toBe("2.0.0");
+        expect(logged.environment).toBe("test");
+        expect(logged.tracesEndpoint).toMatch(/\/v1\/traces$/);
+      } finally {
+        await shutdownTelemetry();
+      }
+    });
+
+    it("sets the service.version resource attribute", () => {
+      const resource = buildResource(enabledConfig({ version: "3.1.4" }));
+      expect(resource.attributes["service.version"]).toBe("3.1.4");
+      expect(resource.attributes["deployment.environment.name"]).toBe("test");
     });
 
     it("reports disabled again after shutdown", async () => {

@@ -22,7 +22,7 @@ const DEFAULT_PROBE_INTERVAL_MS = 15 * 60 * 1000;
 /** Accepted endpoint URL schemes. Anything else is a misconfiguration. */
 const REDIS_URL_SCHEMES = ["redis://", "rediss://"];
 
-const createdStores: { close?(): Promise<unknown> }[] = [];
+const createdStores: RedisStore[] = [];
 
 export type RedisMode = "auto" | "enabled" | "disabled";
 
@@ -281,6 +281,20 @@ export function createRedisStore(url?: string): RedisStore | undefined {
 
   createdStores.push(store);
   return store;
+}
+
+export type RedisHealthState = "up" | "down" | "disabled";
+
+/**
+ * Aggregates the availability of every store created by {@link createRedisStore}
+ * for the health endpoint. `disabled` when Redis was never configured; `up`
+ * when at least one store is reachable; `down` otherwise.
+ */
+export function getRedisHealthState(): RedisHealthState {
+  if (createdStores.length === 0) {
+    return "disabled";
+  }
+  return createdStores.some((store) => store.isAvailable()) ? "up" : "down";
 }
 
 /** Disconnects every store created by {@link createRedisStore}. */

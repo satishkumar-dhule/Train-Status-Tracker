@@ -12,12 +12,17 @@ export interface TelemetryConfig {
   serviceName: string;
   /** Full OTLP/HTTP trace endpoint (per-signal URL, wins over base). */
   tracesEndpoint?: string;
+  /** Full OTLP/HTTP metrics endpoint. Derived from the base collector URL
+   * (`/v1/metrics`) when unset; undefined disables metric export. */
+  metricsEndpoint?: string;
   /** Probability (0-1) that a root trace is sampled. Invalid values fall back to 1. */
   sampleRatio: number;
   /** Whether user-interaction spans (clicks, etc.) are captured. */
   enableInteractions: boolean;
   /** Raw base collector endpoint (`VITE_OTEL_EXPORTER_OTLP_ENDPOINT`). */
   collectorEndpoint?: string;
+  /** API origin (`VITE_API_URL`) that receives W3C traceparent headers. */
+  apiOrigin?: string;
 }
 
 export const DEFAULT_SERVICE_NAME = 'train-tracker-web';
@@ -27,10 +32,12 @@ export const DEFAULT_SAMPLE_RATIO = 1;
 export const TELEMETRY_ENV = {
   enabled: 'VITE_OTEL_ENABLED',
   tracesEndpoint: 'VITE_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+  metricsEndpoint: 'VITE_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
   collectorEndpoint: 'VITE_OTEL_EXPORTER_OTLP_ENDPOINT',
   serviceName: 'VITE_OTEL_SERVICE_NAME',
   sampleRatio: 'VITE_OTEL_TRACE_SAMPLE_RATIO',
   enableInteractions: 'VITE_OTEL_ENABLE_INTERACTIONS',
+  apiOrigin: 'VITE_API_URL',
 } as const;
 
 function isTrue(value: string | undefined): boolean {
@@ -63,13 +70,24 @@ export function parseTelemetryConfig(
 ): TelemetryConfig {
   const tracesEndpoint =
     env[TELEMETRY_ENV.tracesEndpoint] ?? env[TELEMETRY_ENV.collectorEndpoint];
+  const collectorEndpoint = env[TELEMETRY_ENV.collectorEndpoint];
+  const apiOriginRaw = env[TELEMETRY_ENV.apiOrigin];
   return {
     enabled: isTrue(env[TELEMETRY_ENV.enabled]),
     serviceName: env[TELEMETRY_ENV.serviceName] ?? DEFAULT_SERVICE_NAME,
     tracesEndpoint: tracesEndpoint === undefined ? undefined : tracesEndpoint,
+    metricsEndpoint:
+      env[TELEMETRY_ENV.metricsEndpoint] ??
+      (collectorEndpoint === undefined
+        ? undefined
+        : `${collectorEndpoint}/v1/metrics`),
     sampleRatio: parseSampleRatio(env[TELEMETRY_ENV.sampleRatio]),
     enableInteractions: isTrue(env[TELEMETRY_ENV.enableInteractions]),
-    collectorEndpoint: env[TELEMETRY_ENV.collectorEndpoint],
+    collectorEndpoint,
+    apiOrigin:
+      apiOriginRaw !== undefined && apiOriginRaw.trim() !== ''
+        ? apiOriginRaw
+        : undefined,
   };
 }
 

@@ -1,7 +1,31 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { metrics, type Counter, type Histogram, type Meter } from "@opentelemetry/api";
 import { gzipSync } from "node:zlib";
 import { createRedisTtlCache, type RedisTtlCache } from "./redis-cache";
 import type { RedisStore } from "./redis-client";
+
+const counterAdds: Array<{
+  name: string;
+  value: number;
+  attributes: Record<string, string | number>;
+}> = [];
+metrics.setGlobalMeterProvider({
+  getMeter: (): Meter =>
+    ({
+      createCounter: (name: string): Counter => ({
+        add: (value: number, attributes?: Record<string, string | number>) => {
+          counterAdds.push({ name, value, attributes: attributes ?? {} });
+        },
+      }),
+      createHistogram: (name: string): Histogram => ({
+        record: (_value: number, _attributes?: Record<string, string | number>) => {},
+      }),
+    }) as Meter,
+});
+
+beforeEach(() => {
+  counterAdds.length = 0;
+});
 
 class FakeStore implements RedisStore {
   available = true;
@@ -114,6 +138,21 @@ describe("createRedisTtlCache", () => {
       ttlSeconds: 60,
     });
     await expect(cache.get(KEY)).resolves.toEqual({ status: "negative" });
+  });
+
+  it("records the get/negative outcome for a cached not-found marker", async () => {
+    const { cache } = makeCache();
+    await cache.setNegative(KEY);
+    await cache.get(KEY);
+
+    const recorded = counterAdds.find(
+      (c) =>
+        c.name === "trains.status.redis.requests" &&
+        c.attributes.operation === "get" &&
+        c.attributes.outcome === "negative",
+    );
+    expect(recorded).toBeDefined();
+    expect(recorded?.value).toBe(1);
   });
 
   it("namespaces keys with the configured prefix", async () => {

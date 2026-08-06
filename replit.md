@@ -10,6 +10,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Required env: none for telemetry — the API server and SPA both stay on the no-op providers until an OTLP endpoint is configured. See `.env.example` for the full reference.
 
 ## Stack
 
@@ -35,6 +36,10 @@ _Replace the heading above with the project's name, and this line with one sente
 - **RailYatri date constraint.** Its API has no date param — only today (`start_day=0`) or yesterday (`start_day=1`); other dates are rejected as upstream errors so the orchestrator can fail over.
 - **Per-provider QoS + circuit breaking.** Every status lookup is recorded in the QoS registry (`lib/providers/qos.ts`): outcome, latency (avg/p95), timeouts, error rate, consecutive failures. After `TRAIN_STATUS_QOS_FAILURE_THRESHOLD` (default 3) consecutive upstream errors a provider is skipped for `TRAIN_STATUS_QOS_COOLDOWN_MS` (default 60s) instead of burning its full timeout on every request; if *all* providers are in cooldown the first is still force-tried so availability never regresses. The registry is per-instance (in-memory); OTel counters/histograms in `http.ts` remain the long-lived cross-instance view.
 - **QoS status endpoint.** `GET /api/trains/providers` returns a snapshot per enabled provider (counts, error rate, avg/p95 latency, circuit-breaker status, last error). Ops-only; not in the OpenAPI spec or generated clients.
+- **App-side status cache.** The frontend caches running-status payloads in TanStack Query and serves them without touching the backend while younger than `VITE_STATUS_CACHE_TTL_MS` (default 5 min; see `artifacts/train-tracker/src/lib/status-cache.ts`). `gcTime` is the TTL plus a 60s buffer so a fresh entry is never GC'd the instant it goes stale. The explicit Retry button still force-refetches.
+- **Refresh + auto-refresh (frontend).** The status hero exposes a manual Refresh button (force-refetches via the hook's `refetch`, bypassing staleness) and an opt-in Auto-refresh toggle (`useAutoRefresh`, persisted to localStorage, default OFF). When ON, `useTrainStatus` sets TanStack `refetchInterval` to `VITE_AUTO_REFRESH_INTERVAL_MS` (default 30s — aligned with the server's 30s L1 cache so polls hit the cache, not upstreams; see `lib/auto-refresh.ts`). Polling never runs for disabled/held queries, and stops when the toggle is off or the tab is hidden.
+- **End-to-end observability.** API (`artifacts/api-server/src/lib/telemetry.ts`) and SPA (`artifacts/train-tracker/src/lib/telemetry/`) bootstrap OTel SDKs behind env flags; both default to disabled. API: host + runtime + HTTP/Redis auto-instrumentation, PII redaction (query strings, peer IPs), HTTP/RED metrics, per-provider failover/QoS counters, enriched `/api/healthz`. SPA: RUM via WebTracerProvider + `@opentelemetry/sdk-metrics` (NOT `sdk-metrics-web` — absent from the Replit package mirror), W3C `traceparent` propagation to the API origin, web-vitals histograms, buffered window-error spans, business spans in `lib/telemetry/queries.ts`. The `pnpm-workspace` skill and `.env.example` list the env keys; `render.yaml` shows the production wiring (commented-out collector endpoints).
+- **Codegen wipes hand-edits.** `pnpm --filter @workspace/api-spec run codegen` runs orval with `clean: true`, so it deletes anything hand-written inside the generated dirs (`lib/api-zod/src/generated/*`, `lib/api-client-react/src/generated/*`). The committed `api.test.ts` and the `.trim()` on `SearchTrainsQueryParams.q` (a security hardening orval can't emit) are re-applied by hand after every regen — keep them in sync when you touch the spec.
 
 ## Gotchas
 
@@ -43,6 +48,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - Date formats: Paytm/API use `YYYYMMDD`; Goibibo/WIMT `DD-MM-YYYY`; EaseMyTrip `DD/MM/YYYY`; RailYatri uses `start_day`; RailRadar `DD-MM-YYYY`.
 - Route/redis tests stub `fetch` URL-aware per provider — a single "not found" body no longer works for all upstreams.
 - Route tests reset `defaultQosRegistry` in `afterEach`/`beforeEach` so the circuit breaker can't trip across tests; new tests pass their own `QosRegistry` where they assert on it.
+- OTel sdk-node 0.221: only the **first** `NodeSDK` started in a process exports spans — a second `start()` (or one after `shutdown()`) records but silently drops exports. Production calls `initTelemetry` once per process, so this only bites tests that assert exported spans after a prior SDK lifecycle; unit-test resource merging via the exported `buildResource` instead.
 
 ## Product
 

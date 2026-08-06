@@ -1,9 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { metrics, type Histogram, type Meter } from "@opentelemetry/api";
 
 const { callbacks, optionsSeen } = vi.hoisted(() => ({
   callbacks: {} as Record<string, (metric: { value: number }) => void>,
   optionsSeen: {} as Record<string, unknown>,
 }));
+
+const histogramRecords: Array<{
+  name: string;
+  value: number;
+  attributes: Record<string, string | number>;
+}> = [];
+metrics.setGlobalMeterProvider({
+  getMeter: (): Meter =>
+    ({
+      createHistogram: (name: string): Histogram => ({
+        record: (value: number, attributes?: Record<string, string | number>) => {
+          histogramRecords.push({ name, value, attributes: attributes ?? {} });
+        },
+      }),
+      createCounter: () => {
+        throw new Error("createCounter not expected");
+      },
+    }) as Meter,
+});
 
 vi.mock("web-vitals", () => {
   const register =
@@ -42,6 +62,7 @@ describe("startWebVitalsReporting", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    histogramRecords.length = 0;
   });
 
   it("registers every core web vital", () => {
@@ -108,5 +129,25 @@ describe("reportVitalToOtel", () => {
       reportVitalToOtel("cls", 0.05);
       reportVitalToOtel("ttfb", 800);
     }).not.toThrow();
+  });
+
+  it("records lcp into the web.vitals.report histogram with the vital attribute", () => {
+    reportVitalToOtel("lcp", 2500);
+
+    expect(histogramRecords).toContainEqual({
+      name: "web.vitals.report",
+      value: 2500,
+      attributes: { vital: "lcp" },
+    });
+  });
+
+  it("records cls into the web.vitals.cls histogram with the vital attribute", () => {
+    reportVitalToOtel("cls", 0.05);
+
+    expect(histogramRecords).toContainEqual({
+      name: "web.vitals.cls",
+      value: 0.05,
+      attributes: { vital: "cls" },
+    });
   });
 });

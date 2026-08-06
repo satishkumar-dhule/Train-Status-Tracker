@@ -266,7 +266,7 @@ function buildInstrumentations() {
 }
 
 /** Resource = default resource + deployment environment + service version. */
-function buildResource(cfg: TelemetryConfig) {
+export function buildResource(cfg: TelemetryConfig) {
   return defaultResource().merge(
     resourceFromAttributes({
       [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: cfg.environment,

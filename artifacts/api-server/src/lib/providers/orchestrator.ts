@@ -1,4 +1,5 @@
 import { logger } from "../logger";
+import { metrics, trace, type Counter } from "@opentelemetry/api";
 import { TrainStatusNotFoundError, TrainStatusUpstreamError } from "./errors";
 import type {
   KnownTrain,
@@ -14,6 +15,22 @@ export interface FailoverOptions {
   knownTrain?: KnownTrain | null;
   /** QoS registry consulted for circuit breaking; shared one by default. */
   qos?: QosRegistry;
+}
+
+const getMeter = () => metrics.getMeter("train-tracker-api");
+
+let failoverCounter: Counter | undefined;
+const getFailoverCounter = (): Counter =>
+  (failoverCounter ??= getMeter().createCounter("app.provider.failover", {
+    description:
+      "Train status lookups that needed failover, by outcome and attempts",
+  }));
+
+function recordFailover(
+  outcome: "recovered" | "not_found" | "upstream_error",
+  attempts: number,
+): void {
+  getFailoverCounter().add(1, { outcome, attempts });
 }
 
 function isTimeoutError(err: unknown): boolean {
@@ -87,6 +104,12 @@ export async function fetchStatusWithFailover(
         latencyMs: performance.now() - startedAt,
       });
       if (upstreamErrors.length > 0) {
+        recordFailover("recovered", upstreamErrors.length + 1);
+        // Tag the request span with the number of providers consulted so
+        // latency anomalies can be traced back to a fallback chain.
+        trace
+          .getActiveSpan()
+          ?.setAttribute("app.failover.providers_consulted", upstreamErrors.length + 1);
         logger.warn(
           {
             trainNumber,
@@ -129,12 +152,14 @@ export async function fetchStatusWithFailover(
   }
 
   if (toConsult.length > 0 && notFoundProviders.size === toConsult.length) {
+    recordFailover("not_found", toConsult.length);
     throw new TrainStatusNotFoundError(
       "all",
       "Train not found or no data available",
     );
   }
   if (upstreamErrors.length > 0) {
+    recordFailover("upstream_error", upstreamErrors.length);
     throw new TrainStatusUpstreamError(
       "all",
       "All train status providers failed",

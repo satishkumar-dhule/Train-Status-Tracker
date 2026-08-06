@@ -5,9 +5,24 @@ import {
 } from "@workspace/api-client-react";
 import type { TrainStatusResponse } from "@workspace/api-client-react";
 import {
+  STATUS_CACHE_GC_BUFFER_MS,
+  getStatusCacheTtlMs,
+} from "../lib/status-cache";
+import { getAutoRefreshIntervalMs } from "../lib/auto-refresh";
+import {
   isProviderUnreachableError,
   isTrainNotFoundError,
 } from "../lib/status-metrics";
+
+/**
+ * Freshness window for cached status payloads (default 5 min). While a
+ * payload is younger than this, remounts and refocuses serve from the query
+ * cache and never hit the backend API.
+ */
+const STATUS_CACHE_TTL_MS = getStatusCacheTtlMs();
+
+/** Polling cadence when auto-refresh is ON (default 30s, see lib/auto-refresh). */
+const AUTO_REFRESH_INTERVAL_MS = getAutoRefreshIntervalMs();
 
 export interface TrainStatusResult {
   data: TrainStatusResponse | undefined;
@@ -27,11 +42,14 @@ export interface TrainStatusResult {
   isNetworkError: boolean;
   /** i18n key for the error, or null when there is no error. */
   messageKey: string | null;
+  /** Forces a fresh fetch of the current train/date, bypassing the cache. */
+  refetch: () => Promise<unknown>;
 }
 
 export function useTrainStatus(
   params: { train_number: string; departure_date: string } | null,
   enabled?: boolean,
+  autoRefresh?: boolean,
 ): TrainStatusResult {
   const query = useGetTrainStatus(
     params ?? { train_number: "", departure_date: "" },
@@ -41,12 +59,16 @@ export function useTrainStatus(
         queryKey: params ? getGetTrainStatusQueryKey(params) : [],
         retry: false,
         refetchOnWindowFocus: false,
+        refetchInterval: autoRefresh ? AUTO_REFRESH_INTERVAL_MS : undefined,
+        staleTime: STATUS_CACHE_TTL_MS,
+        gcTime: STATUS_CACHE_TTL_MS + STATUS_CACHE_GC_BUFFER_MS,
         placeholderData: keepPreviousData,
       },
     },
   );
 
-  const { data, isFetching, isError, isPlaceholderData, error } = query;
+  const { data, isFetching, isError, isPlaceholderData, error, refetch } =
+    query;
 
   const isLoading = data === undefined && isFetching;
 
@@ -78,5 +100,6 @@ export function useTrainStatus(
     isProviderError,
     isNetworkError,
     messageKey,
+    refetch,
   };
 }

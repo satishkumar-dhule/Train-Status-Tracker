@@ -4,13 +4,19 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { keepPreviousData } from "@tanstack/react-query";
 import type { TrainStatusResponse } from "@workspace/api-client-react";
+import {
+  DEFAULT_STATUS_CACHE_TTL_MS,
+  STATUS_CACHE_GC_BUFFER_MS,
+} from "../lib/status-cache";
+import { DEFAULT_AUTO_REFRESH_INTERVAL_MS } from "../lib/auto-refresh";
 import { useTrainStatus } from "./use-train-status";
 
 const mocks = vi.hoisted(() => ({
   useGetTrainStatus: vi.fn(),
-  getGetTrainStatusQueryKey: vi.fn(
-    (params?: unknown) => ["/api/trains/status", params],
-  ),
+  getGetTrainStatusQueryKey: vi.fn((params?: unknown) => [
+    "/api/trains/status",
+    params,
+  ]),
   getGetTrainStatusQueryOptions: vi.fn(),
 }));
 
@@ -61,15 +67,17 @@ function mockQuery(query: MockQuery) {
     isFetching: query.isFetching,
     isError: query.isError,
     error: query.error ?? null,
+    refetch: vi.fn(async () => undefined),
   });
 }
 
 beforeEach(() => {
   mocks.useGetTrainStatus.mockReset();
   mocks.getGetTrainStatusQueryKey.mockReset();
-  mocks.getGetTrainStatusQueryKey.mockImplementation(
-    (params?: unknown) => ["/api/trains/status", params],
-  );
+  mocks.getGetTrainStatusQueryKey.mockImplementation((params?: unknown) => [
+    "/api/trains/status",
+    params,
+  ]);
 });
 
 describe("useTrainStatus", () => {
@@ -112,7 +120,12 @@ describe("useTrainStatus", () => {
   });
 
   it("404 error object: isNotFound true and messageKey points to the not-found key", () => {
-    mockQuery({ data: undefined, isFetching: false, isError: true, error: API_ERROR_404 });
+    mockQuery({
+      data: undefined,
+      isFetching: false,
+      isError: true,
+      error: API_ERROR_404,
+    });
 
     const { result } = renderHook(() => useTrainStatus(PARAMS));
 
@@ -124,7 +137,12 @@ describe("useTrainStatus", () => {
   });
 
   it("5xx error object: isProviderError true", () => {
-    mockQuery({ data: undefined, isFetching: false, isError: true, error: API_ERROR_502 });
+    mockQuery({
+      data: undefined,
+      isFetching: false,
+      isError: true,
+      error: API_ERROR_502,
+    });
 
     const { result } = renderHook(() => useTrainStatus(PARAMS));
 
@@ -136,7 +154,12 @@ describe("useTrainStatus", () => {
 
   it("network-like error: isNetworkError true", () => {
     const networkError = new TypeError("Failed to fetch");
-    mockQuery({ data: undefined, isFetching: false, isError: true, error: networkError });
+    mockQuery({
+      data: undefined,
+      isFetching: false,
+      isError: true,
+      error: networkError,
+    });
 
     const { result } = renderHook(() => useTrainStatus(PARAMS));
 
@@ -161,7 +184,59 @@ describe("useTrainStatus", () => {
     expect(options.query.placeholderData).toBe(keepPreviousData);
     expect(options.query.retry).toBe(false);
     expect(options.query.refetchOnWindowFocus).toBe(false);
+    expect(options.query.staleTime).toBe(DEFAULT_STATUS_CACHE_TTL_MS);
+    expect(options.query.gcTime).toBe(
+      DEFAULT_STATUS_CACHE_TTL_MS + STATUS_CACHE_GC_BUFFER_MS,
+    );
+    expect(options.query.refetchInterval).toBeUndefined();
     expect(options.query.enabled).toBe(true);
+  });
+
+  it("autoRefresh off (default): no refetchInterval is set", () => {
+    mockQuery({ data: RESPONSE, isFetching: false, isError: false });
+
+    renderHook(() => useTrainStatus(PARAMS));
+
+    const [, options] = mocks.useGetTrainStatus.mock.calls[0];
+    expect(options.query.refetchInterval).toBeUndefined();
+  });
+
+  it("autoRefresh on: sets the refetchInterval", () => {
+    mockQuery({ data: RESPONSE, isFetching: false, isError: false });
+
+    renderHook(() => useTrainStatus(PARAMS, undefined, true));
+
+    const [, options] = mocks.useGetTrainStatus.mock.calls[0];
+    expect(options.query.refetchInterval).toBe(
+      DEFAULT_AUTO_REFRESH_INTERVAL_MS,
+    );
+  });
+
+  it("autoRefresh off while disabled: query stays off and does not poll", () => {
+    mockQuery({ data: undefined, isFetching: false, isError: false });
+
+    renderHook(() => useTrainStatus(PARAMS, false, true));
+
+    const [, options] = mocks.useGetTrainStatus.mock.calls[0];
+    expect(options.query.enabled).toBe(false);
+    expect(options.query.refetchInterval).toBe(
+      DEFAULT_AUTO_REFRESH_INTERVAL_MS,
+    );
+  });
+
+  it("exposes the refetch function from the query", () => {
+    const refetch = vi.fn(async () => undefined);
+    mocks.useGetTrainStatus.mockReturnValue({
+      data: RESPONSE,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch,
+    });
+
+    const { result } = renderHook(() => useTrainStatus(PARAMS));
+
+    expect(result.current.refetch).toBe(refetch);
   });
 
   it("params null: query not enabled and empty query key", () => {

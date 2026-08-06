@@ -1,10 +1,42 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
+import {
+  metrics,
+  type Counter,
+  type Histogram,
+  type Meter,
+} from "@opentelemetry/api";
 import {
   createRateLimiter,
   createRateLimitMiddleware,
   type RateLimiter,
 } from "./rate-limit";
+
+const counterAdds: Array<{
+  name: string;
+  value: number;
+  attributes: Record<string, string | number>;
+}> = [];
+metrics.setGlobalMeterProvider({
+  getMeter: (): Meter =>
+    ({
+      createCounter: (name: string): Counter => ({
+        add: (value: number, attributes?: Record<string, string | number>) => {
+          counterAdds.push({ name, value, attributes: attributes ?? {} });
+        },
+      }),
+      createHistogram: (name: string): Histogram => ({
+        record: (
+          _value: number,
+          _attributes?: Record<string, string | number>,
+        ) => {},
+      }),
+    }) as Meter,
+});
+
+afterEach(() => {
+  counterAdds.length = 0;
+});
 
 function makeNow() {
   let t = 1_000_000;
@@ -149,5 +181,50 @@ describe("createRateLimitMiddleware", () => {
     const req = { ip: "10.0.0.7" } as Request;
     middleware(req, fakeResponse() as unknown as Response, vi.fn());
     expect(keys).toEqual(["10.0.0.7"]);
+  });
+
+  it("records a denied decision metric when blocking a request", () => {
+    const limiter: RateLimiter = {
+      check: () => ({ allowed: false, retryAfterMs: 30_000 }),
+    };
+    const middleware = createRateLimitMiddleware(limiter, () => "ip");
+    middleware(
+      {} as Request,
+      fakeResponse() as unknown as Response,
+      vi.fn(),
+    );
+
+    const recorded = counterAdds.find(
+      (c) => c.name === "app.rate_limit.decisions",
+    );
+    expect(recorded).toEqual({
+      name: "app.rate_limit.decisions",
+      value: 1,
+      attributes: { result: "denied" },
+    });
+  });
+
+  it("tags the decision metric with the route label", () => {
+    const limiter: RateLimiter = {
+      check: () => ({ allowed: false, retryAfterMs: 30_000 }),
+    };
+    const middleware = createRateLimitMiddleware(
+      limiter,
+      () => "ip",
+      "trains.runs",
+    );
+    middleware(
+      {} as Request,
+      fakeResponse() as unknown as Response,
+      vi.fn(),
+    );
+
+    const recorded = counterAdds.find(
+      (c) => c.name === "app.rate_limit.decisions",
+    );
+    expect(recorded?.attributes).toEqual({
+      result: "denied",
+      route: "trains.runs",
+    });
   });
 });

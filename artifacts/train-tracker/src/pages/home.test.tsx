@@ -14,7 +14,9 @@ import Home from "./Home";
 const mocks = vi.hoisted(() => ({
   useTrainStatus: vi.fn(),
   useTrainRuns: vi.fn(),
+  refetch: vi.fn(async () => undefined),
   calls: [] as Array<{ train_number: string; departure_date: string } | null>,
+  autoRefreshArgs: [] as Array<boolean | undefined>,
 }));
 
 vi.mock("@/hooks/use-train-status", () => ({
@@ -111,7 +113,9 @@ function mockSuccess() {
     (
       params: { train_number: string; departure_date: string } | null,
       enabled?: boolean,
+      autoRefresh?: boolean,
     ) => {
+      mocks.autoRefreshArgs.push(autoRefresh);
       if (!params || enabled === false) {
         mocks.calls.push(null);
         return {
@@ -123,6 +127,7 @@ function mockSuccess() {
           isProviderError: false,
           isNetworkError: false,
           messageKey: null,
+          refetch: mocks.refetch,
         };
       }
       mocks.calls.push(params);
@@ -138,6 +143,7 @@ function mockSuccess() {
         isProviderError: false,
         isNetworkError: false,
         messageKey: null,
+        refetch: mocks.refetch,
       };
     },
   );
@@ -148,7 +154,9 @@ function mockPlaceholder() {
     (
       params: { train_number: string; departure_date: string } | null,
       enabled?: boolean,
+      autoRefresh?: boolean,
     ) => {
+      mocks.autoRefreshArgs.push(autoRefresh);
       if (!params || enabled === false) {
         return {
           data: undefined,
@@ -159,6 +167,7 @@ function mockPlaceholder() {
           isProviderError: false,
           isNetworkError: false,
           messageKey: null,
+          refetch: mocks.refetch,
         };
       }
       return {
@@ -174,6 +183,7 @@ function mockPlaceholder() {
         isProviderError: false,
         isNetworkError: false,
         messageKey: null,
+        refetch: mocks.refetch,
       };
     },
   );
@@ -186,7 +196,9 @@ function mockError(
     (
       params: { train_number: string; departure_date: string } | null,
       enabled?: boolean,
+      autoRefresh?: boolean,
     ) => {
+      mocks.autoRefreshArgs.push(autoRefresh);
       if (!params || enabled === false) {
         mocks.calls.push(null);
         return {
@@ -198,6 +210,7 @@ function mockError(
           isProviderError: false,
           isNetworkError: false,
           messageKey: null,
+          refetch: mocks.refetch,
         };
       }
       mocks.calls.push(params);
@@ -210,6 +223,7 @@ function mockError(
         isProviderError: key === "error.providerUnreachable",
         isNetworkError: key === "error.fallback",
         messageKey: key,
+        refetch: mocks.refetch,
       };
     },
   );
@@ -228,7 +242,7 @@ function renderHome() {
           </Router>
         </RecentSearchesProvider>
       </I18nProvider>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -251,6 +265,9 @@ describe("Home", () => {
       isError: false,
     });
     mocks.calls.length = 0;
+    mocks.autoRefreshArgs.length = 0;
+    mocks.refetch.mockReset();
+    mocks.refetch.mockResolvedValue(undefined);
     localStorage.clear();
     HTMLElement.prototype.scrollIntoView = () => {};
   });
@@ -355,9 +372,64 @@ describe("Home", () => {
     expect(panel).toHaveTextContent(
       "Train data provider is unreachable. Please try again.",
     );
-    expect(
-      screen.getByRole("button", { name: "Retry" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("retry in the error panel force-refetches via the status hook's refetch", async () => {
+    const user = userEvent.setup();
+    mockError("error.providerUnreachable");
+    renderHome();
+
+    await searchFor(user, "22943");
+    await screen.findByTestId("status-error");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("refresh button force-refetches the current status on click", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    renderHome();
+
+    await searchFor(user, "22943");
+    await screen.findByTestId("text-train-number");
+
+    const refresh = screen.getByRole("button", { name: "Refresh" });
+    expect(refresh).toBeEnabled();
+
+    await user.click(refresh);
+
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-refresh toggle starts OFF and stays OFF by default", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    renderHome();
+
+    await searchFor(user, "22943");
+    await screen.findByTestId("text-train-number");
+
+    const toggle = screen.getByRole("switch");
+    expect(toggle).toHaveAttribute("data-state", "unchecked");
+    expect(mocks.autoRefreshArgs[mocks.autoRefreshArgs.length - 1]).toBe(false);
+  });
+
+  it("auto-refresh toggle ON persists the preference and enables polling", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    renderHome();
+
+    await searchFor(user, "22943");
+    await screen.findByTestId("text-train-number");
+
+    await user.click(screen.getByRole("switch"));
+
+    expect(screen.getByRole("switch")).toHaveAttribute("data-state", "checked");
+    expect(mocks.autoRefreshArgs[mocks.autoRefreshArgs.length - 1]).toBe(true);
+    expect(localStorage.getItem("terminal-track.auto-refresh")).toBe("true");
   });
 
   it("loads a recent chip click and submits it", async () => {
