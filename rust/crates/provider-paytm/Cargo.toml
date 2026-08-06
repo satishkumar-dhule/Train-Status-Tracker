@@ -6,3 +6,9 @@ license.workspace = true
 description = "Paytm upstream adapter + run-date probing"
 
 [dependencies]
+serde_json = "1.0.151"
+thiserror = "2.0.19"
+tt-mapper = { version = "0.1.0", path = "../mapper" }
+tt-provider-core = { version = "0.1.0", path = "../provider-core" }
+tt-provider-http = { version = "0.1.0", path = "../provider-http" }
+url = "2.5.8"

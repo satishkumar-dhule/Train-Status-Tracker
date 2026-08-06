@@ -6,3 +6,13 @@ license.workspace = true
 description = "HTTP transport client: timeouts, redirect cap, abort, max bytes"
 
 [dependencies]
+async-trait = "0.1.91"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "json", "stream"] }
+ring = "0.17.14"
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = "1.0.229"
+serde_json = "1.0.151"
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["sync", "time", "macros", "rt"] }
+tt-mapper = { version = "0.1.0", path = "../mapper" }
+tt-provider-core = { version = "0.1.0", path = "../provider-core" }

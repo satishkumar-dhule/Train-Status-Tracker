@@ -6,3 +6,5 @@ license.workspace = true
 description = "MappedStatus/MappedStation normalization contract (ZTA untrusted payloads)"
 
 [dependencies]
+serde_json = "1.0.151"
+tt-contract = { version = "0.1.0", path = "../contract" }
