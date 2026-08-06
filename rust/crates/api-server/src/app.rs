@@ -22,7 +22,7 @@ use crate::middleware::{
     metrics, panic_to_error_response, security_headers, FailureLog, RequestLog, RequestSpan,
     ResponseLog,
 };
-use crate::routes::{healthz, not_found};
+use crate::routes::{healthz, not_found, train_status};
 
 /// Shared, cloneable state handed to handlers and middleware.
 #[derive(Clone)]
@@ -33,18 +33,39 @@ pub struct AppState {
     pub telemetry: Arc<Telemetry>,
     /// Process start marker, used for `uptime_seconds` on `/api/healthz`.
     pub started: Instant,
+    /// The train-status upstream used by `GET /api/trains/status`.
+    pub status_provider: Arc<dyn tt_provider_core::TrainStatusProvider>,
 }
 
-/// Builds the fully-wired application router. Testable without binding a port.
+/// Builds the fully-wired application router with the default train-status
+/// provider (the Paytm adapter over the production reqwest transport).
+/// Testable without binding a port.
 pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
+    let status_provider: Arc<dyn tt_provider_core::TrainStatusProvider> =
+        Arc::new(tt_provider_paytm::create_paytm_provider(Arc::new(
+            tt_provider_http::ReqwestTransport::new(),
+        )));
+    build_app_with_status(config, telemetry, status_provider)
+}
+
+/// Builds the fully-wired application router over an injected train-status
+/// provider. Route tests substitute a `MockTransport`-backed provider here so
+/// the whole HTTP surface stays hermetic.
+pub fn build_app_with_status(
+    config: Config,
+    telemetry: Arc<Telemetry>,
+    status_provider: Arc<dyn tt_provider_core::TrainStatusProvider>,
+) -> Router {
     let state = AppState {
         config: config.clone(),
         telemetry,
         started: Instant::now(),
+        status_provider,
     };
 
     Router::new()
         .route("/api/healthz", routing::get(healthz))
+        .route("/api/trains/status", routing::get(train_status))
         .fallback(not_found)
         .layer(CatchPanicLayer::custom(panic_to_error_response))
         .layer(from_fn_with_state(state.clone(), metrics))

@@ -1,7 +1,10 @@
 //! Route handlers.
 //!
 //! `healthz` mirrors `routes/health.ts`, `not_found` mirrors the catch-all
-//! `app.use((_req, res) => ... 404)` in `app.ts`.
+//! `app.use((_req, res) => ... 404)` in `app.ts`, and [`train_status`] (in the
+//! private [`status`] submodule) mirrors `routes/trains.ts`.
+
+mod status;
 
 use axum::extract::State;
 use axum::http::{header, StatusCode};
@@ -11,6 +14,8 @@ use chrono::{SecondsFormat, Utc};
 use tt_contract::{ErrorResponse, HealthStatus, HealthStatusRedis};
 
 use crate::app::AppState;
+
+pub(crate) use status::train_status;
 
 /// `GET /api/healthz` — process liveness plus per-dependency checks.
 pub(crate) async fn healthz(State(state): State<AppState>) -> impl IntoResponse {

@@ -1592,7 +1592,13 @@ dependencies = [
  "tt-config",
  "tt-contract",
  "tt-logging",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "tt-provider-paytm",
  "tt-telemetry",
+ "tt-trains-data",
+ "url",
 ]
 
 [[package]]
@@ -1674,8 +1680,10 @@ dependencies = [
 name = "tt-provider-paytm"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde_json",
  "thiserror",
+ "tokio",
  "tt-mapper",
  "tt-provider-core",
  "tt-provider-http",
