@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use opentelemetry::metrics::Histogram;
+use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider, Temporality};
@@ -146,6 +146,44 @@ impl HttpMetrics {
                 attributes.push(KeyValue::new("error.type", format!("HTTP {status}")));
             }
             histogram.record(duration_ms / 1000.0, &attributes);
+        }
+    }
+}
+
+/// Provider-failover recorder. Port of `recordFailover` in
+/// `lib/providers/orchestrator.ts`: a counter `app.provider.failover`
+/// incremented by 1 with `outcome` and `attempts` attributes.
+pub struct ProviderMetrics {
+    counter: Option<Counter<u64>>,
+}
+
+impl ProviderMetrics {
+    pub(crate) fn noop() -> ProviderMetrics {
+        ProviderMetrics { counter: None }
+    }
+
+    pub(crate) fn from_meter(meter: opentelemetry::metrics::Meter) -> ProviderMetrics {
+        let counter = meter
+            .u64_counter("app.provider.failover")
+            .with_description("Train status lookups that needed failover, by outcome and attempts")
+            .build();
+        ProviderMetrics {
+            counter: Some(counter),
+        }
+    }
+
+    /// Records one failover outcome (`recovered` / `not_found` /
+    /// `upstream_error`) with the number of provider attempts. No-op when
+    /// telemetry is disabled.
+    pub fn record_failover(&self, outcome: &str, attempts: u64) {
+        if let Some(counter) = &self.counter {
+            counter.add(
+                1,
+                &[
+                    KeyValue::new("outcome", outcome.to_string()),
+                    KeyValue::new("attempts", attempts as i64),
+                ],
+            );
         }
     }
 }

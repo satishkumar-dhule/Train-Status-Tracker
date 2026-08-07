@@ -16,6 +16,9 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use tt_config::Config;
+use tt_provider_core::TrainStatusProvider;
+use tt_provider_paytm::create_paytm_provider;
+use tt_qos::QosRegistry;
 use tt_telemetry::Telemetry;
 
 use crate::middleware::{
@@ -33,34 +36,42 @@ pub struct AppState {
     pub telemetry: Arc<Telemetry>,
     /// Process start marker, used for `uptime_seconds` on `/api/healthz`.
     pub started: Instant,
-    /// The train-status upstream used by `GET /api/trains/status`.
-    pub status_provider: Arc<dyn tt_provider_core::TrainStatusProvider>,
+    /// Train-status upstreams in priority order; the orchestrator fails over
+    /// across them. Mirrors the `statusProviders` list in `routes/trains.ts`.
+    pub status_providers: Vec<Arc<dyn TrainStatusProvider>>,
+    /// Shared QoS registry consulted by the orchestrator for circuit breaking.
+    pub qos: Arc<QosRegistry>,
 }
 
 /// Builds the fully-wired application router with the default train-status
 /// provider (the Paytm adapter over the production reqwest transport).
 /// Testable without binding a port.
 pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
-    let status_provider: Arc<dyn tt_provider_core::TrainStatusProvider> =
-        Arc::new(tt_provider_paytm::create_paytm_provider(Arc::new(
+    build_app_with_providers(
+        config,
+        telemetry,
+        vec![Arc::new(create_paytm_provider(Arc::new(
             tt_provider_http::ReqwestTransport::new(),
-        )));
-    build_app_with_status(config, telemetry, status_provider)
+        )))],
+        Arc::new(QosRegistry::default()),
+    )
 }
 
-/// Builds the fully-wired application router over an injected train-status
-/// provider. Route tests substitute a `MockTransport`-backed provider here so
-/// the whole HTTP surface stays hermetic.
-pub fn build_app_with_status(
+/// Builds the fully-wired application router over an injected provider list
+/// and QoS registry. Route tests substitute `MockTransport`-backed providers
+/// here so the whole HTTP surface stays hermetic.
+pub fn build_app_with_providers(
     config: Config,
     telemetry: Arc<Telemetry>,
-    status_provider: Arc<dyn tt_provider_core::TrainStatusProvider>,
+    status_providers: Vec<Arc<dyn TrainStatusProvider>>,
+    qos: Arc<QosRegistry>,
 ) -> Router {
     let state = AppState {
         config: config.clone(),
         telemetry,
         started: Instant::now(),
-        status_provider,
+        status_providers,
+        qos,
     };
 
     Router::new()

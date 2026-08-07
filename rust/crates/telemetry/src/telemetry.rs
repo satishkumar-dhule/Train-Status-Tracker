@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tt_config::{Config, OtelConfig};
 
-use crate::{HttpMetrics, Meter, Tracer};
+use crate::{HttpMetrics, Meter, ProviderMetrics, Tracer};
 
 /// Set once real SDK providers are up, so [`is_enabled`] reports true even when
 /// the process environment changed after startup (port of `isTelemetryEnabled`
@@ -17,6 +17,7 @@ pub struct Telemetry {
     tracer: Tracer,
     meter: Meter,
     http_metrics: HttpMetrics,
+    provider_metrics: ProviderMetrics,
     #[cfg(feature = "otlp")]
     providers: Option<crate::otlp::Providers>,
 }
@@ -44,6 +45,11 @@ impl Telemetry {
         &self.http_metrics
     }
 
+    /// The provider-failover recorder; inert when telemetry is disabled.
+    pub fn provider_metrics(&self) -> &ProviderMetrics {
+        &self.provider_metrics
+    }
+
     /// Flushes and shuts down the SDK providers, restoring the inert state.
     /// Safe to call once at shutdown; exporter failures never throw.
     pub fn shutdown(self) {
@@ -60,6 +66,7 @@ impl Telemetry {
             tracer: Tracer::noop(),
             meter: Meter::noop(),
             http_metrics: HttpMetrics::noop(),
+            provider_metrics: ProviderMetrics::noop(),
             #[cfg(feature = "otlp")]
             providers: None,
         }
@@ -102,6 +109,7 @@ pub fn init(config: &Config) -> Telemetry {
                     tracer: Tracer::new(providers.tracer()),
                     meter: Meter::new(),
                     http_metrics: HttpMetrics::from_meter(meter_handle),
+                    provider_metrics: ProviderMetrics::from_meter(providers.meter()),
                     providers: Some(providers),
                 }
             }

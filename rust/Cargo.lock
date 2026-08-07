@@ -1579,6 +1579,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 name = "tt-api-server"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
  "http",
@@ -1593,9 +1594,11 @@ dependencies = [
  "tt-contract",
  "tt-logging",
  "tt-mapper",
+ "tt-orchestrator",
  "tt-provider-core",
  "tt-provider-http",
  "tt-provider-paytm",
+ "tt-qos",
  "tt-telemetry",
  "tt-trains-data",
  "url",
@@ -1641,6 +1644,16 @@ dependencies = [
 [[package]]
 name = "tt-orchestrator"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tokio",
+ "tracing",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "tt-qos",
+ "tt-telemetry",
+]
 
 [[package]]
 name = "tt-provider-core"
@@ -1705,6 +1718,9 @@ version = "0.1.0"
 [[package]]
 name = "tt-qos"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+]
 
 [[package]]
 name = "tt-rate-limit"

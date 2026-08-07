@@ -63,3 +63,18 @@ impl HttpMetrics {
     /// Records completion for a single request. No-op when disabled.
     pub fn record(&self, _status: u16, _duration_ms: f64, _method: &str, _route: &str) {}
 }
+
+/// Provider-failover recorder. Port of `recordFailover` in
+/// `lib/providers/orchestrator.ts`; a no-op when telemetry is disabled.
+pub struct ProviderMetrics {}
+
+impl ProviderMetrics {
+    pub(crate) fn noop() -> ProviderMetrics {
+        ProviderMetrics {}
+    }
+
+    /// Records one failover outcome (`recovered` / `not_found` /
+    /// `upstream_error`) with the number of provider attempts. No-op when
+    /// disabled.
+    pub fn record_failover(&self, _outcome: &str, _attempts: u64) {}
+}

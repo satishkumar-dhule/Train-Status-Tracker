@@ -36,6 +36,8 @@ pub const DEFAULT_TRAIN_CATALOG_TTL_MS: u64 = 3_600_000;
 pub const DEFAULT_QOS_FAILURE_THRESHOLD: u32 = 3;
 /// `TRAIN_STATUS_QOS_COOLDOWN_MS` — default 60 seconds.
 pub const DEFAULT_QOS_COOLDOWN_MS: u64 = 60_000;
+/// `TRAIN_STATUS_QOS_LATENCY_SAMPLES` — default 100.
+pub const DEFAULT_QOS_LATENCY_SAMPLES: usize = 100;
 /// Base OTLP/HTTP collector endpoint when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset.
 pub const DEFAULT_OTLP_ENDPOINT: &str = "http://localhost:4318";
 /// `OTEL_SERVICE_NAME` — default `train-tracker-api`.
@@ -102,6 +104,8 @@ pub struct Config {
     pub qos_failure_threshold: u32,
     /// `TRAIN_STATUS_QOS_COOLDOWN_MS` — default 60000.
     pub qos_cooldown_ms: u64,
+    /// `TRAIN_STATUS_QOS_LATENCY_SAMPLES` — default 100.
+    pub qos_latency_samples: usize,
     /// OpenTelemetry configuration (the `OTEL_*` env surface).
     pub otel: OtelConfig,
 }
@@ -142,6 +146,11 @@ impl Config {
                 "TRAIN_STATUS_QOS_COOLDOWN_MS",
                 DEFAULT_QOS_COOLDOWN_MS,
             ),
+            qos_latency_samples: env::positive_u64(
+                env,
+                "TRAIN_STATUS_QOS_LATENCY_SAMPLES",
+                DEFAULT_QOS_LATENCY_SAMPLES as u64,
+            ) as usize,
             otel: OtelConfig::parse(env),
         }
     }
@@ -199,6 +208,7 @@ mod tests {
         assert_eq!(cfg.service_version, None);
         assert_eq!(cfg.qos_failure_threshold, 3);
         assert_eq!(cfg.qos_cooldown_ms, 60_000);
+        assert_eq!(cfg.qos_latency_samples, 100);
         assert!(!cfg.otel.enabled);
         assert_eq!(cfg.otel.service_name, "train-tracker-api");
         assert_eq!(cfg.otel.environment, "development");
@@ -230,6 +240,7 @@ mod tests {
             ("SERVICE_VERSION", "1.2.3"),
             ("TRAIN_STATUS_QOS_FAILURE_THRESHOLD", "5"),
             ("TRAIN_STATUS_QOS_COOLDOWN_MS", "120000"),
+            ("TRAIN_STATUS_QOS_LATENCY_SAMPLES", "50"),
             ("OTEL_ENABLED", "true"),
             ("OTEL_SERVICE_NAME", "custom"),
             ("OTEL_TRACE_SAMPLE_RATIO", "0.25"),
@@ -258,6 +269,7 @@ mod tests {
         assert_eq!(cfg.service_version.as_deref(), Some("1.2.3"));
         assert_eq!(cfg.qos_failure_threshold, 5);
         assert_eq!(cfg.qos_cooldown_ms, 120_000);
+        assert_eq!(cfg.qos_latency_samples, 50);
         assert!(cfg.otel.enabled);
         assert_eq!(cfg.otel.service_name, "custom");
         assert_eq!(cfg.otel.trace_sample_ratio, 0.25);
@@ -273,6 +285,7 @@ mod tests {
             ("TRAIN_CATALOG_TTL_MS", "-5"),
             ("TRAIN_STATUS_QOS_FAILURE_THRESHOLD", "0"),
             ("TRAIN_STATUS_QOS_COOLDOWN_MS", "Infinity"),
+            ("TRAIN_STATUS_QOS_LATENCY_SAMPLES", "-3"),
             ("OTEL_TRACE_SAMPLE_RATIO", "1.5"),
             ("OTEL_METRIC_EXPORT_INTERVAL_MS", "abc"),
         ]));
@@ -282,6 +295,7 @@ mod tests {
         assert_eq!(cfg.train_catalog_ttl_ms, 3_600_000);
         assert_eq!(cfg.qos_failure_threshold, 3);
         assert_eq!(cfg.qos_cooldown_ms, 60_000);
+        assert_eq!(cfg.qos_latency_samples, 100);
         assert_eq!(cfg.otel.trace_sample_ratio, 1.0);
         assert_eq!(cfg.otel.metric_export_interval_ms, 60_000);
     }

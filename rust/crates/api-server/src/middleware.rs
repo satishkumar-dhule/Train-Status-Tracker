@@ -36,6 +36,7 @@ impl<B> MakeSpan<B> for RequestSpan {
             path = %path,
             status = tracing::field::Empty,
             latency_ms = tracing::field::Empty,
+            providers_consulted = tracing::field::Empty,
         )
     }
 }

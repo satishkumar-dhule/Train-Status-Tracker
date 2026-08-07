@@ -11,12 +11,12 @@ end with Paytm alone, before any QoS/failover.
 
 **Blocked by:** 02, 04
 
-**Status:** ready-for-agent
+**Status:** done (committed `0291e88`)
 
-- [ ] provider trait tests: each TS paytm test case passes 1:1 (parse,
+- [x] provider trait tests: each TS paytm test case passes 1:1 (parse,
   normalize, not-found, upstream error, timeout)
-- [ ] mapper golden tests: untrusted payloads map to `MappedStatus` exactly as
+- [x] mapper golden tests: untrusted payloads map to `MappedStatus` exactly as
   the TS mapper does
-- [ ] `GET /api/trains/status` with Paytm only matches the TS golden fixture
+- [x] `GET /api/trains/status` with Paytm only matches the TS golden fixture
   (fields, nullability, `last_updated` ISO-8601)
-- [ ] 404 when Paytm reports not found; 502 on upstream failure
+- [x] 404 when Paytm reports not found; 502 on upstream failure

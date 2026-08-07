@@ -1,11 +1,13 @@
 //! `GET /api/trains/status` — running-status lookup, ported from
-//! `routes/trains.ts` minus the caching/failover layers (later slices).
+//! `routes/trains.ts` minus the caching layer (a later slice).
 //!
 //! Query validation mirrors the reference exactly: missing and repeated params
 //! are rejected up front over the raw query (so arrays can never be silently
 //! stringified), then the shape regexes, then the real-calendar gate, and only
 //! then is the upstream called. Validation failures and upstream verdicts map
-//! to the same status codes and bodies as the TypeScript server.
+//! to the same status codes and bodies as the TypeScript server, with full
+//! failover semantics (404 only when every consulted provider agrees
+//! not-found; 502 when all upstreams fail).
 
 use axum::extract::{RawQuery, State};
 use axum::http::StatusCode;
@@ -13,7 +15,8 @@ use axum::response::{IntoResponse, Json};
 
 use tt_contract::{is_valid_departure_date, is_valid_train_number, ErrorResponse};
 use tt_mapper::KnownTrain;
-use tt_provider_core::{ProviderError, ProviderFetchOptions};
+use tt_orchestrator::{fetch_status_with_failover, FailoverOptions};
+use tt_provider_core::ProviderError;
 use tt_trains_data::{find_train_by_number, is_valid_api_date, TRAINS};
 
 use crate::app::AppState;
@@ -86,15 +89,20 @@ pub(crate) async fn train_status(
         name: train.name.clone(),
     });
 
-    match state
-        .status_provider
-        .fetch_train_status(
-            &train_number,
-            &departure_date,
-            &ProviderFetchOptions::default(),
-            known_train.as_ref(),
-        )
-        .await
+    let options = FailoverOptions {
+        known_train,
+        qos: Some(state.qos.clone()),
+        telemetry: Some(state.telemetry.clone()),
+        ..FailoverOptions::default()
+    };
+
+    match fetch_status_with_failover(
+        &state.status_providers,
+        &train_number,
+        &departure_date,
+        &options,
+    )
+    .await
     {
         Ok(mapped) => (StatusCode::OK, Json(tt_mapper::to_wire_status(&mapped))).into_response(),
         Err(ProviderError::NotFound { .. }) => {

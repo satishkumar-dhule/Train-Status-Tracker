@@ -1,14 +1,15 @@
 //! Integration tests for `GET /api/trains/status`, driven through
-//! `build_app_with_status` with a `MockTransport`-backed Paytm provider via
+//! `build_app_with_providers` with `MockTransport`-backed Paytm providers via
 //! `tower::ServiceExt::oneshot` (no port binding).
 //!
-//! Ports the `routes/trains.test.ts` cases that do not depend on caching or
-//! provider failover (later slices): validation, error taxonomy, and the wire
-//! response shape.
+//! Ports the `routes/trains.test.ts` cases that do not depend on the caching
+//! layer (a later slice): validation, error taxonomy, failover
+//! classification, and the wire response shape.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
@@ -16,9 +17,13 @@ use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
 
-use tt_api_server::build_app_with_status;
+use tt_api_server::build_app_with_providers;
 use tt_config::Config;
+use tt_mapper::{KnownTrain, MappedStatus};
+use tt_provider_core::{ProviderError, ProviderFetchOptions, TrainStatusProvider};
 use tt_provider_http::MockTransport;
+use tt_provider_paytm::create_paytm_provider;
+use tt_qos::{QosOptions, QosRegistry};
 
 const TRAIN_NUMBER: &str = "22943";
 const DEPARTURE_DATE: &str = "20260802";
@@ -100,8 +105,9 @@ fn app_serving(body: Value) -> (Router, Arc<MockTransport>) {
     let mock = Arc::new(mock);
 
     let telemetry = Arc::new(tt_telemetry::init(&config()));
-    let provider = tt_provider_paytm::create_paytm_provider(mock.clone());
-    let app = build_app_with_status(config(), telemetry, Arc::new(provider));
+    let provider = create_paytm_provider(mock.clone());
+    let qos = Arc::new(QosRegistry::default());
+    let app = build_app_with_providers(config(), telemetry, vec![Arc::new(provider)], qos);
     (app, mock)
 }
 
@@ -111,8 +117,81 @@ fn app_serving_status(status: u16) -> Router {
     let mut mock = MockTransport::new();
     mock.push(STATUS_PATH, status, "boom");
     let telemetry = Arc::new(tt_telemetry::init(&config()));
-    let provider = tt_provider_paytm::create_paytm_provider(Arc::new(mock));
-    build_app_with_status(config(), telemetry, Arc::new(provider))
+    let provider = create_paytm_provider(Arc::new(mock));
+    let qos = Arc::new(QosRegistry::default());
+    build_app_with_providers(config(), telemetry, vec![Arc::new(provider)], qos)
+}
+
+/// A provider that delegates everything to `inner` but reports its own name,
+/// so tests can tell QoS registries' per-provider state apart (the Paytm
+/// adapter always reports `"paytm"`).
+struct NamedProvider {
+    name: String,
+    inner: Arc<dyn TrainStatusProvider>,
+}
+
+#[async_trait]
+impl TrainStatusProvider for NamedProvider {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn enabled(&self) -> bool {
+        self.inner.enabled()
+    }
+    async fn fetch_train_status(
+        &self,
+        train_number: &str,
+        departure_date: &str,
+        options: &ProviderFetchOptions,
+        known_train: Option<&KnownTrain>,
+    ) -> Result<MappedStatus, ProviderError> {
+        self.inner
+            .fetch_train_status(train_number, departure_date, options, known_train)
+            .await
+    }
+}
+
+/// Build a Paytm provider over its own mock, served from the given body.
+fn provider_serving(body: Value) -> Arc<dyn TrainStatusProvider> {
+    let mut mock = MockTransport::new();
+    mock.push_json(STATUS_PATH, &body);
+    Arc::new(create_paytm_provider(Arc::new(mock)))
+}
+
+/// Build a Paytm provider over its own mock, failing every request with the
+/// given canned non-2xx status.
+fn provider_serving_status(status: u16) -> Arc<dyn TrainStatusProvider> {
+    let mut mock = MockTransport::new();
+    mock.push(STATUS_PATH, status, "boom");
+    Arc::new(create_paytm_provider(Arc::new(mock)))
+}
+
+/// Like [`provider_serving`], but reporting `name` so per-provider QoS state
+/// can be observed through the registry.
+fn named_provider_serving(name: &str, body: Value) -> Arc<dyn TrainStatusProvider> {
+    Arc::new(NamedProvider {
+        name: name.to_string(),
+        inner: provider_serving(body),
+    })
+}
+
+/// Like [`provider_serving_status`], but reporting `name` (see above).
+fn named_provider_serving_status(name: &str, status: u16) -> Arc<dyn TrainStatusProvider> {
+    Arc::new(NamedProvider {
+        name: name.to_string(),
+        inner: provider_serving_status(status),
+    })
+}
+
+/// Build an app with the given providers and a QoS registry whose window is
+/// large enough to never evict and whose cooldown threshold is `threshold`.
+fn app_with_providers(providers: Vec<Arc<dyn TrainStatusProvider>>, threshold: u32) -> Router {
+    let telemetry = Arc::new(tt_telemetry::init(&config()));
+    let qos = Arc::new(QosRegistry::new(QosOptions {
+        failure_threshold: threshold,
+        ..QosOptions::default()
+    }));
+    build_app_with_providers(config(), telemetry, providers, qos)
 }
 
 /// Sends `GET uri` and returns the status plus the raw response body.
@@ -337,4 +416,113 @@ async fn does_not_special_case_a_404_upstream_status() {
 
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert_eq!(body, r#"{"error":"Could not reach train data provider"}"#);
+}
+
+fn status_uri() -> String {
+    format!("/api/trains/status?train_number={TRAIN_NUMBER}&departure_date={DEPARTURE_DATE}")
+}
+
+fn not_found_raw() -> Value {
+    serde_json::json!({
+        "error": true,
+        "status": { "result": "failure" },
+    })
+}
+
+#[tokio::test]
+async fn fails_over_to_a_later_provider_when_the_first_is_down() {
+    let app = app_with_providers(
+        vec![
+            named_provider_serving_status("first", 500),
+            named_provider_serving("second", happy_raw()),
+        ],
+        3,
+    );
+    let (status, body) = send(&app, &status_uri()).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["train_number"], TRAIN_NUMBER);
+    assert_eq!(value["status_message"], "Running on time");
+}
+
+#[tokio::test]
+async fn returns_404_only_when_every_provider_agrees_not_found() {
+    let app = app_with_providers(
+        vec![
+            named_provider_serving("first", not_found_raw()),
+            named_provider_serving("second", not_found_raw()),
+        ],
+        2,
+    );
+    let (status, body) = send(&app, &status_uri()).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body, r#"{"error":"Train not found or no data available"}"#);
+}
+
+#[tokio::test]
+async fn returns_502_when_any_provider_fails_after_a_not_found() {
+    let app = app_with_providers(
+        vec![
+            named_provider_serving("first", not_found_raw()),
+            named_provider_serving_status("second", 500),
+        ],
+        2,
+    );
+    let (status, body) = send(&app, &status_uri()).await;
+
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body, r#"{"error":"Could not reach train data provider"}"#);
+}
+
+#[tokio::test]
+async fn returns_502_when_all_providers_fail() {
+    let app = app_with_providers(
+        vec![
+            named_provider_serving_status("first", 500),
+            named_provider_serving_status("second", 500),
+            named_provider_serving_status("third", 500),
+        ],
+        2,
+    );
+    let (status, body) = send(&app, &status_uri()).await;
+
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body, r#"{"error":"Could not reach train data provider"}"#);
+}
+
+#[tokio::test]
+async fn skips_a_provider_in_qos_cooldown_at_the_route_level() {
+    let mut failing = MockTransport::new();
+    failing.push(STATUS_PATH, 500, "boom");
+    let failing_mock = Arc::new(failing);
+    let failing_provider: Arc<dyn TrainStatusProvider> = Arc::new(NamedProvider {
+        name: "failing".to_string(),
+        inner: Arc::new(create_paytm_provider(failing_mock.clone())),
+    });
+    let ok_provider = named_provider_serving("ok", happy_raw());
+
+    // Threshold 1: the failing provider enters cooldown after one failure.
+    let app = app_with_providers(vec![failing_provider, ok_provider], 1);
+
+    let (status, _body) = send(&app, &status_uri()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        failing_mock.requests().len(),
+        1,
+        "first request consults it"
+    );
+
+    let (status, _body) = send(&app, &status_uri()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        failing_mock.requests().len(),
+        1,
+        "second request must skip the provider in cooldown"
+    );
+
+    let (status, _body) = send(&app, &status_uri()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(failing_mock.requests().len(), 1);
 }

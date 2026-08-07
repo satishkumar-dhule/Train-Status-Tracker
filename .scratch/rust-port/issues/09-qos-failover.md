@@ -9,10 +9,10 @@ skips with force-try fallback; failover telemetry counters.
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** done (ready to commit)
 
-- [ ] QoS tests pass 1:1 (threshold, cooldown, force-try, reset-on-success)
-- [ ] orchestrator tests pass 1:1 (unanimous 404, all-error 502, mixed
+- [x] QoS tests pass 1:1 (threshold, cooldown, force-try, reset-on-success)
+- [x] orchestrator tests pass 1:1 (unanimous 404, all-error 502, mixed
   recovered, program-error rethrown, cooldown skip)
-- [ ] failover counters + span attribute (providers consulted) emitted
-- [ ] status endpoint with multiple providers returns correct classification
+- [x] failover counters + span attribute (providers consulted) emitted
+- [x] status endpoint with multiple providers returns correct classification
