@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RecentSearchesProvider } from "@/context/recent-searches";
 import { RECENT_SEARCHES_STORAGE_KEY } from "@/lib/recent-searches";
 import { getUpcomingDates, toApiDate } from "@workspace/trains-data";
-import { MemoryRouter } from "wouter";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import type { TrainStatusResponse } from "@workspace/api-client-react";
 import Home from "./Home";
 
@@ -167,12 +168,13 @@ function renderHome() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const memory = memoryLocation({ path: "/" });
   return render(
     <QueryClientProvider client={queryClient}>
       <RecentSearchesProvider>
-        <MemoryRouter initialPath="/">
+        <Router hook={memory.hook} searchHook={memory.searchHook}>
           <Home />
-        </MemoryRouter>
+        </Router>
       </RecentSearchesProvider>
     </QueryClientProvider>,
   );

@@ -18,6 +18,7 @@ members = [
     "crates/provider-wimt",
     "crates/qos",
     "crates/rate-limit",
+    "crates/runs",
     "crates/telemetry",
     "crates/trains-data",
 ]

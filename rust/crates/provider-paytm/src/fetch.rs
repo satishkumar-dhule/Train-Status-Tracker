@@ -19,7 +19,7 @@ use std::time::Duration;
 use tt_provider_http::{HttpTransport, Request, TransportError};
 
 use crate::parse::{parse_paytm_response_body, PaytmError, PaytmTrainStatusPayload};
-use crate::{paytm_status_url, PAYTM_USER_AGENT};
+use crate::provider::{paytm_status_url, PAYTM_USER_AGENT};
 
 /// Probe request timeout — mirrors `TIMEOUT_MS = 10_000` in `paytm-client.ts`.
 const TIMEOUT_MS: u64 = 10_000;

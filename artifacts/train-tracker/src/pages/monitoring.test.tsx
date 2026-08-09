@@ -1,7 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "wouter";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import { summarizeProbes } from "../lib/api-monitoring";
 import type { MonitoringResult } from "../hooks/use-api-monitoring";
 import Monitoring from "./Monitoring";
 
@@ -21,8 +23,15 @@ vi.mock("../components/monitoring-view", () => ({
 function makeResult(): MonitoringResult {
   return {
     snapshot: null,
-    summary: null,
-    history: [],
+    summary: summarizeProbes([]),
+    history: {
+      health: [],
+      catalog: [],
+      search: [],
+      runs: [],
+      status: [],
+      providers: [],
+    },
     isPolling: false,
     isPaused: false,
     hasEverRun: true,
@@ -32,10 +41,11 @@ function makeResult(): MonitoringResult {
 }
 
 function renderMonitoring() {
+  const memory = memoryLocation({ path: "/monitoring" });
   return render(
-    <MemoryRouter initialPath="/monitoring">
+    <Router hook={memory.hook} searchHook={memory.searchHook}>
       <Monitoring />
-    </MemoryRouter>,
+    </Router>,
   );
 }
 

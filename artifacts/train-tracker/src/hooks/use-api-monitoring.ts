@@ -45,7 +45,9 @@ function appendLatencySamples(
 
 export function useApiMonitoring(): MonitoringResult {
   const [snapshot, setSnapshot] = useState<MonitoringProbes | null>(null);
-  const [history, setHistory] = useState<Record<ProbeId, number[]>>({});
+  const [history, setHistory] = useState<Record<ProbeId, number[]>>(
+    {} as Record<ProbeId, number[]>,
+  );
   const [isPolling, setIsPolling] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [hasEverRun, setHasEverRun] = useState(false);
