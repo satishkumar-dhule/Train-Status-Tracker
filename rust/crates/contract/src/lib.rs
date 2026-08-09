@@ -9,11 +9,13 @@ mod validate;
 mod wire;
 
 pub use validate::{
-    is_valid_departure_date, is_valid_train_number, parse_search_limit, parse_search_q,
-    SearchLimitError, SearchQueryError, SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN,
-    SEARCH_Q_MAX_LENGTH,
+    is_valid_departure_date, is_valid_pnr, is_valid_station_code, is_valid_train_number,
+    parse_search_limit, parse_search_q, SearchLimitError, SearchQueryError, SEARCH_LIMIT_DEFAULT,
+    SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN, SEARCH_Q_MAX_LENGTH,
 };
 pub use wire::{
-    ErrorResponse, HealthStatus, HealthStatusRedis, StationStatus, TrainCatalogResponse,
-    TrainEntry, TrainRunsResponse, TrainSearchResponse, TrainStatusResponse,
+    AtStationResponse, BetweenStationsResponse, BetweenTrain, ErrorResponse, HealthStatus,
+    HealthStatusRedis, PnrPassenger, PnrStatusResponse, ScheduleStation, StationStatus,
+    StationTrain, TrainAlert, TrainAlertsResponse, TrainCatalogResponse, TrainEntry,
+    TrainRunsResponse, TrainScheduleResponse, TrainSearchResponse, TrainStatusResponse,
 };

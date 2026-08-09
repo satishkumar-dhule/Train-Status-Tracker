@@ -30,7 +30,7 @@ pub use query::{
 pub use time::{
     calc_delay, format_duration, format_short_date, from_api_date, get_date_window,
     get_upcoming_dates, is_valid_api_date, is_valid_departure_date, pick_default_run_date,
-    to_api_date, to_minutes, LocalDate,
+    to_api_date, to_minutes, weekday_of, LocalDate,
 };
 
 // text.ts

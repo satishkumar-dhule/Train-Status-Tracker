@@ -15,7 +15,12 @@ use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use tt_cache::{
+    create_redis_client, create_redis_ttl_cache, RedisCacheOptions, RedisConfig, RedisHealth,
+    RedisMode, RedisStore, RedisTtlCache, TtlCache,
+};
 use tt_config::Config;
+use tt_mapper::MappedStatus;
 use tt_orchestrator::build_status_providers;
 use tt_provider_core::TrainStatusProvider;
 use tt_qos::QosRegistry;
@@ -25,7 +30,7 @@ use crate::middleware::{
     metrics, panic_to_error_response, security_headers, FailureLog, RequestLog, RequestSpan,
     ResponseLog,
 };
-use crate::routes::{healthz, not_found, train_status};
+use crate::routes::{healthz, not_found, train_status, CachedStatus};
 
 /// Shared, cloneable state handed to handlers and middleware.
 #[derive(Clone)]
@@ -41,6 +46,16 @@ pub struct AppState {
     pub status_providers: Vec<Arc<dyn TrainStatusProvider>>,
     /// Shared QoS registry consulted by the orchestrator for circuit breaking.
     pub qos: Arc<QosRegistry>,
+    /// L1 in-memory single-flight cache, mirroring `tlCache` in
+    /// `routes/trains.ts`. Its producer consults L2, then the upstream.
+    pub status_l1: Arc<TtlCache<CachedStatus>>,
+    /// L2 Redis cache (`createRedisTtlCache`); `None` without Redis or a
+    /// real-client build — Miss-equivalent, so the L1 still runs upstream.
+    pub status_l2: Option<Arc<RedisTtlCache<MappedStatus>>>,
+    /// Redis availability controller (port of `createRedisHealth`), sharing
+    /// the connection behind `status_l2` so it reports the same reachability;
+    /// `None` whenever the store is too. Read by `/api/healthz`.
+    pub redis_health: Option<Arc<RedisHealth>>,
 }
 
 /// Builds the fully-wired application router with the configured train-status
@@ -64,19 +79,60 @@ pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
 
 /// Builds the fully-wired application router over an injected provider list
 /// and QoS registry. Route tests substitute `MockTransport`-backed providers
-/// here so the whole HTTP surface stays hermetic.
+/// here so the whole HTTP surface stays hermetic; the Redis client (store +
+/// health) comes from the config (and is `None` on builds without the cache
+/// `real-client` feature).
 pub fn build_app_with_providers(
     config: Config,
     telemetry: Arc<Telemetry>,
     status_providers: Vec<Arc<dyn TrainStatusProvider>>,
     qos: Arc<QosRegistry>,
 ) -> Router {
+    let redis = create_redis_client(&redis_config(&config));
+    let store = redis.as_ref().map(|client| Arc::clone(&client.store));
+    let health = redis.as_ref().map(|client| Arc::clone(&client.health));
+    build_app_with_cache(config, telemetry, status_providers, qos, store, health)
+}
+
+/// The shared wiring core: every constructor funnels here. Route tests pass an
+/// injected [`RedisStore`] (the cache crate's `testkit`) to exercise L2
+/// behavior hermetically, and an optional health controller for the
+/// `/api/healthz` `redis` field (`None` reports `disabled`).
+pub fn build_app_with_cache(
+    config: Config,
+    telemetry: Arc<Telemetry>,
+    status_providers: Vec<Arc<dyn TrainStatusProvider>>,
+    qos: Arc<QosRegistry>,
+    store: Option<Arc<dyn RedisStore>>,
+    redis_health: Option<Arc<RedisHealth>>,
+) -> Router {
+    let status_l1 = TtlCache::new(config.status_cache_l1_ttl_ms as i64);
+    let status_l2 = store.and_then(|store| {
+        let mut options = RedisCacheOptions::with_defaults(
+            config.status_cache_ttl_ms as i64,
+            config.status_cache_neg_ttl_ms as i64,
+        );
+        options.key_prefix = config.redis_key_prefix.clone();
+        options.jitter = config.status_cache_ttl_jitter;
+        options.compress = config.redis_gzip;
+        match create_redis_ttl_cache(store, options) {
+            Ok(cache) => Some(cache),
+            Err(err) => {
+                tracing::warn!(error = %err, "status cache disabled by invalid options");
+                None
+            }
+        }
+    });
+
     let state = AppState {
         config: config.clone(),
         telemetry,
         started: Instant::now(),
         status_providers,
         qos,
+        status_l1,
+        status_l2,
+        redis_health,
     };
 
     Router::new()
@@ -95,6 +151,21 @@ pub fn build_app_with_providers(
                 .on_failure(FailureLog),
         )
         .with_state(state)
+}
+
+/// The cache crate's `RedisConfig` built from the parsed app config (its
+/// `RedisMode` enum mirrors the config crate's 1:1).
+fn redis_config(config: &Config) -> RedisConfig {
+    RedisConfig {
+        mode: match config.redis_mode {
+            tt_config::RedisMode::Auto => RedisMode::Auto,
+            tt_config::RedisMode::Enabled => RedisMode::Enabled,
+            tt_config::RedisMode::Disabled => RedisMode::Disabled,
+        },
+        url: config.redis_url.clone(),
+        command_timeout_ms: config.redis_command_timeout_ms,
+        probe_interval_ms: config.redis_probe_interval_ms,
+    }
 }
 
 /// CORS policy, mirroring `buildCorsOptions` in `app.ts`: `CORS_ORIGIN` is a

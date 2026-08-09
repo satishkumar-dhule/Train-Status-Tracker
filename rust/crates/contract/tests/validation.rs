@@ -3,9 +3,9 @@
 //! cases covering the exact Zod coercion semantics in `generated/api.ts`).
 
 use tt_contract::{
-    is_valid_departure_date, is_valid_train_number, parse_search_limit, parse_search_q,
-    SearchLimitError, SearchQueryError, SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN,
-    SEARCH_Q_MAX_LENGTH,
+    is_valid_departure_date, is_valid_pnr, is_valid_station_code, is_valid_train_number,
+    parse_search_limit, parse_search_q, SearchLimitError, SearchQueryError, SEARCH_LIMIT_DEFAULT,
+    SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN, SEARCH_Q_MAX_LENGTH,
 };
 
 mod constants {
@@ -144,6 +144,72 @@ mod search_trains_query_params {
     fn rejects_empty_after_trim() {
         for bad in ["", "   ", "\t\n"] {
             assert_eq!(parse_search_q(bad), Err(SearchQueryError::Empty), "{bad:?}");
+        }
+    }
+}
+
+mod station_code {
+    use super::*;
+
+    #[test]
+    fn accepts_common_indian_railway_codes() {
+        assert!(is_valid_station_code("ADI"));
+        assert!(is_valid_station_code("NDLS"));
+        assert!(is_valid_station_code("HWH"));
+        assert!(is_valid_station_code("SBC"));
+    }
+
+    #[test]
+    fn accepts_lowercase_and_mixed_case() {
+        assert!(is_valid_station_code("adi"));
+        assert!(is_valid_station_code("AdI"));
+        assert!(is_valid_station_code("adi"));
+    }
+
+    #[test]
+    fn accepts_single_character_codes() {
+        assert!(is_valid_station_code("A"));
+    }
+
+    #[test]
+    fn rejects_empty_or_whitespace() {
+        assert!(!is_valid_station_code(""));
+        assert!(!is_valid_station_code(" "));
+        assert!(!is_valid_station_code("AD I"));
+    }
+
+    #[test]
+    fn rejects_punctuation_and_symbols() {
+        for bad in ["ADI!", "AD-I", "AD.I", "N@LS", "\u{1b}]0;evil"] {
+            assert!(!is_valid_station_code(bad), "{bad:?} must be rejected");
+        }
+    }
+
+    #[test]
+    fn rejects_over_long_codes() {
+        assert!(!is_valid_station_code(&"A".repeat(11)));
+    }
+}
+
+mod pnr {
+    use super::*;
+
+    #[test]
+    fn accepts_a_10_digit_pnr() {
+        assert!(is_valid_pnr("2315455889"));
+    }
+
+    #[test]
+    fn rejects_a_non_10_digit_or_non_digit_pnr() {
+        for bad in [
+            "",
+            "abc",
+            "231545588",
+            "23154558890",
+            "2315455889 ",
+            "231545588x",
+        ] {
+            assert!(!is_valid_pnr(bad), "{bad:?} must be rejected");
         }
     }
 }

@@ -48,6 +48,33 @@ pub const DEFAULT_TRACE_SAMPLE_RATIO: f64 = 1.0;
 pub const DEFAULT_METRIC_EXPORT_INTERVAL_MS: u64 = 60_000;
 /// `NODE_ENV` fallback used for `deployment.environment.name`.
 pub const DEFAULT_ENVIRONMENT: &str = "development";
+/// `STATUS_CACHE_TTL_MS` — default 5 seconds; shield TTL for status reads.
+pub const DEFAULT_STATUS_CACHE_TTL_MS: u64 = 5_000;
+/// `STATUS_CACHE_L1_TTL_MS` — default 2 seconds (in-memory front cache).
+pub const DEFAULT_STATUS_CACHE_L1_TTL_MS: u64 = 2_000;
+/// `STATUS_CACHE_NEG_TTL_MS` — default 1 second (cached "no result" reads).
+pub const DEFAULT_STATUS_CACHE_NEG_TTL_MS: u64 = 1_000;
+/// `STATUS_CACHE_TTL_JITTER` — default 0.2 (TTL spread fraction in `[0, 1)`).
+pub const DEFAULT_STATUS_CACHE_TTL_JITTER: f64 = 0.2;
+/// `REDIS_KEY_PREFIX` — default `tt`.
+pub const DEFAULT_REDIS_KEY_PREFIX: &str = "tt";
+/// `REDIS_COMMAND_TIMEOUT_MS` — default 200 (per-command timeout).
+pub const DEFAULT_REDIS_COMMAND_TIMEOUT_MS: u64 = 200;
+/// `REDIS_PROBE_INTERVAL_MS` — default 15 minutes (health re-probe cadence).
+pub const DEFAULT_REDIS_PROBE_INTERVAL_MS: u64 = 900_000;
+/// `RUNS_CACHE_TTL_MS` — default 6 hours (21600000 ms).
+pub const DEFAULT_RUNS_CACHE_TTL_MS: u64 = 21_600_000;
+/// `RUNS_CACHE_L1_TTL_MS` — default 5 minutes (in-memory front cache).
+pub const DEFAULT_RUNS_CACHE_L1_TTL_MS: u64 = 300_000;
+/// `RUNS_CACHE_NEG_TTL_MS` — default 60 seconds (cached "no result" probes).
+pub const DEFAULT_RUNS_CACHE_NEG_TTL_MS: u64 = 60_000;
+/// `RUNS_CACHE_TTL_JITTER` — default 0.1 (TTL spread fraction in `[0, 1)`).
+pub const DEFAULT_RUNS_CACHE_TTL_JITTER: f64 = 0.1;
+/// `RUNS_RATE_LIMIT_PER_MIN` — default 10 (per-client runs requests).
+pub const DEFAULT_RUNS_RATE_LIMIT_PER_MIN: u64 = 10;
+/// Runs cache L2 key prefix — the `REDIS_KEY_PREFIX` default for the runs
+/// route (`tt:runs:v1`), distinct from the status caches' `tt`.
+pub const DEFAULT_RUNS_REDIS_KEY_PREFIX: &str = "tt:runs:v1";
 
 /// `REDIS_MODE`. Mirrors `parseMode` in `lib/redis-client.ts`: `enabled`/`on`
 /// and `disabled`/`off` are accepted case-insensitively; any other value
@@ -106,6 +133,32 @@ pub struct Config {
     pub qos_cooldown_ms: u64,
     /// `TRAIN_STATUS_QOS_LATENCY_SAMPLES` — default 100.
     pub qos_latency_samples: usize,
+    /// `STATUS_CACHE_TTL_MS` — default 5000.
+    pub status_cache_ttl_ms: u64,
+    /// `STATUS_CACHE_L1_TTL_MS` — default 2000.
+    pub status_cache_l1_ttl_ms: u64,
+    /// `STATUS_CACHE_NEG_TTL_MS` — default 1000.
+    pub status_cache_neg_ttl_ms: u64,
+    /// `STATUS_CACHE_TTL_JITTER` — default 0.2.
+    pub status_cache_ttl_jitter: f64,
+    /// `REDIS_KEY_PREFIX` — default `tt`.
+    pub redis_key_prefix: String,
+    /// `REDIS_COMMAND_TIMEOUT_MS` — default 200.
+    pub redis_command_timeout_ms: u64,
+    /// `REDIS_PROBE_INTERVAL_MS` — default 900000.
+    pub redis_probe_interval_ms: u64,
+    /// `RUNS_CACHE_TTL_MS` — default 21600000.
+    pub runs_cache_ttl_ms: u64,
+    /// `RUNS_CACHE_L1_TTL_MS` — default 300000.
+    pub runs_cache_l1_ttl_ms: u64,
+    /// `RUNS_CACHE_NEG_TTL_MS` — default 60000.
+    pub runs_cache_neg_ttl_ms: u64,
+    /// `RUNS_CACHE_TTL_JITTER` — default 0.1.
+    pub runs_cache_ttl_jitter: f64,
+    /// `RUNS_RATE_LIMIT_PER_MIN` — default 10.
+    pub runs_rate_limit_per_min: u64,
+    /// Runs L2 key prefix — `REDIS_KEY_PREFIX` when set, else `tt:runs:v1`.
+    pub runs_redis_key_prefix: String,
     /// OpenTelemetry configuration (the `OTEL_*` env surface).
     pub otel: OtelConfig,
 }
@@ -151,6 +204,67 @@ impl Config {
                 "TRAIN_STATUS_QOS_LATENCY_SAMPLES",
                 DEFAULT_QOS_LATENCY_SAMPLES as u64,
             ) as usize,
+            status_cache_ttl_ms: env::positive_u64(
+                env,
+                "STATUS_CACHE_TTL_MS",
+                DEFAULT_STATUS_CACHE_TTL_MS,
+            ),
+            status_cache_l1_ttl_ms: env::positive_u64(
+                env,
+                "STATUS_CACHE_L1_TTL_MS",
+                DEFAULT_STATUS_CACHE_L1_TTL_MS,
+            ),
+            status_cache_neg_ttl_ms: env::positive_u64(
+                env,
+                "STATUS_CACHE_NEG_TTL_MS",
+                DEFAULT_STATUS_CACHE_NEG_TTL_MS,
+            ),
+            status_cache_ttl_jitter: env::fraction(
+                env,
+                "STATUS_CACHE_TTL_JITTER",
+                DEFAULT_STATUS_CACHE_TTL_JITTER,
+            ),
+            redis_key_prefix: env::trimmed(env, "REDIS_KEY_PREFIX")
+                .unwrap_or(DEFAULT_REDIS_KEY_PREFIX)
+                .to_string(),
+            redis_command_timeout_ms: env::positive_u64(
+                env,
+                "REDIS_COMMAND_TIMEOUT_MS",
+                DEFAULT_REDIS_COMMAND_TIMEOUT_MS,
+            ),
+            redis_probe_interval_ms: env::positive_u64(
+                env,
+                "REDIS_PROBE_INTERVAL_MS",
+                DEFAULT_REDIS_PROBE_INTERVAL_MS,
+            ),
+            runs_cache_ttl_ms: env::positive_u64(
+                env,
+                "RUNS_CACHE_TTL_MS",
+                DEFAULT_RUNS_CACHE_TTL_MS,
+            ),
+            runs_cache_l1_ttl_ms: env::positive_u64(
+                env,
+                "RUNS_CACHE_L1_TTL_MS",
+                DEFAULT_RUNS_CACHE_L1_TTL_MS,
+            ),
+            runs_cache_neg_ttl_ms: env::positive_u64(
+                env,
+                "RUNS_CACHE_NEG_TTL_MS",
+                DEFAULT_RUNS_CACHE_NEG_TTL_MS,
+            ),
+            runs_cache_ttl_jitter: env::fraction(
+                env,
+                "RUNS_CACHE_TTL_JITTER",
+                DEFAULT_RUNS_CACHE_TTL_JITTER,
+            ),
+            runs_rate_limit_per_min: env::positive_u64(
+                env,
+                "RUNS_RATE_LIMIT_PER_MIN",
+                DEFAULT_RUNS_RATE_LIMIT_PER_MIN,
+            ),
+            runs_redis_key_prefix: env::trimmed(env, "REDIS_KEY_PREFIX")
+                .unwrap_or(DEFAULT_RUNS_REDIS_KEY_PREFIX)
+                .to_string(),
             otel: OtelConfig::parse(env),
         }
     }
@@ -209,6 +323,19 @@ mod tests {
         assert_eq!(cfg.qos_failure_threshold, 3);
         assert_eq!(cfg.qos_cooldown_ms, 60_000);
         assert_eq!(cfg.qos_latency_samples, 100);
+        assert_eq!(cfg.status_cache_ttl_ms, 5_000);
+        assert_eq!(cfg.status_cache_l1_ttl_ms, 2_000);
+        assert_eq!(cfg.status_cache_neg_ttl_ms, 1_000);
+        assert_eq!(cfg.status_cache_ttl_jitter, 0.2);
+        assert_eq!(cfg.redis_key_prefix, "tt");
+        assert_eq!(cfg.redis_command_timeout_ms, 200);
+        assert_eq!(cfg.redis_probe_interval_ms, 900_000);
+        assert_eq!(cfg.runs_cache_ttl_ms, 21_600_000);
+        assert_eq!(cfg.runs_cache_l1_ttl_ms, 300_000);
+        assert_eq!(cfg.runs_cache_neg_ttl_ms, 60_000);
+        assert_eq!(cfg.runs_cache_ttl_jitter, 0.1);
+        assert_eq!(cfg.runs_rate_limit_per_min, 10);
+        assert_eq!(cfg.runs_redis_key_prefix, "tt:runs:v1");
         assert!(!cfg.otel.enabled);
         assert_eq!(cfg.otel.service_name, "train-tracker-api");
         assert_eq!(cfg.otel.environment, "development");
@@ -241,6 +368,18 @@ mod tests {
             ("TRAIN_STATUS_QOS_FAILURE_THRESHOLD", "5"),
             ("TRAIN_STATUS_QOS_COOLDOWN_MS", "120000"),
             ("TRAIN_STATUS_QOS_LATENCY_SAMPLES", "50"),
+            ("STATUS_CACHE_TTL_MS", "8000"),
+            ("STATUS_CACHE_L1_TTL_MS", "1500"),
+            ("STATUS_CACHE_NEG_TTL_MS", "250"),
+            ("STATUS_CACHE_TTL_JITTER", "0.5"),
+            ("REDIS_KEY_PREFIX", "rr"),
+            ("REDIS_COMMAND_TIMEOUT_MS", "500"),
+            ("REDIS_PROBE_INTERVAL_MS", "60000"),
+            ("RUNS_CACHE_TTL_MS", "3600000"),
+            ("RUNS_CACHE_L1_TTL_MS", "60000"),
+            ("RUNS_CACHE_NEG_TTL_MS", "5000"),
+            ("RUNS_CACHE_TTL_JITTER", "0.5"),
+            ("RUNS_RATE_LIMIT_PER_MIN", "25"),
             ("OTEL_ENABLED", "true"),
             ("OTEL_SERVICE_NAME", "custom"),
             ("OTEL_TRACE_SAMPLE_RATIO", "0.25"),
@@ -270,6 +409,19 @@ mod tests {
         assert_eq!(cfg.qos_failure_threshold, 5);
         assert_eq!(cfg.qos_cooldown_ms, 120_000);
         assert_eq!(cfg.qos_latency_samples, 50);
+        assert_eq!(cfg.status_cache_ttl_ms, 8_000);
+        assert_eq!(cfg.status_cache_l1_ttl_ms, 1_500);
+        assert_eq!(cfg.status_cache_neg_ttl_ms, 250);
+        assert_eq!(cfg.status_cache_ttl_jitter, 0.5);
+        assert_eq!(cfg.redis_key_prefix, "rr");
+        assert_eq!(cfg.redis_command_timeout_ms, 500);
+        assert_eq!(cfg.redis_probe_interval_ms, 60_000);
+        assert_eq!(cfg.runs_cache_ttl_ms, 3_600_000);
+        assert_eq!(cfg.runs_cache_l1_ttl_ms, 60_000);
+        assert_eq!(cfg.runs_cache_neg_ttl_ms, 5_000);
+        assert_eq!(cfg.runs_cache_ttl_jitter, 0.5);
+        assert_eq!(cfg.runs_rate_limit_per_min, 25);
+        assert_eq!(cfg.runs_redis_key_prefix, "rr");
         assert!(cfg.otel.enabled);
         assert_eq!(cfg.otel.service_name, "custom");
         assert_eq!(cfg.otel.trace_sample_ratio, 0.25);
@@ -286,6 +438,18 @@ mod tests {
             ("TRAIN_STATUS_QOS_FAILURE_THRESHOLD", "0"),
             ("TRAIN_STATUS_QOS_COOLDOWN_MS", "Infinity"),
             ("TRAIN_STATUS_QOS_LATENCY_SAMPLES", "-3"),
+            ("STATUS_CACHE_TTL_MS", "0"),
+            ("STATUS_CACHE_L1_TTL_MS", "bogus"),
+            ("STATUS_CACHE_NEG_TTL_MS", "-100"),
+            ("STATUS_CACHE_TTL_JITTER", "2"),
+            ("REDIS_KEY_PREFIX", "   "),
+            ("REDIS_COMMAND_TIMEOUT_MS", "0"),
+            ("REDIS_PROBE_INTERVAL_MS", "never"),
+            ("RUNS_CACHE_TTL_MS", "-5"),
+            ("RUNS_CACHE_L1_TTL_MS", "bogus"),
+            ("RUNS_CACHE_NEG_TTL_MS", "0"),
+            ("RUNS_CACHE_TTL_JITTER", "2"),
+            ("RUNS_RATE_LIMIT_PER_MIN", "Infinity"),
             ("OTEL_TRACE_SAMPLE_RATIO", "1.5"),
             ("OTEL_METRIC_EXPORT_INTERVAL_MS", "abc"),
         ]));
@@ -296,6 +460,19 @@ mod tests {
         assert_eq!(cfg.qos_failure_threshold, 3);
         assert_eq!(cfg.qos_cooldown_ms, 60_000);
         assert_eq!(cfg.qos_latency_samples, 100);
+        assert_eq!(cfg.status_cache_ttl_ms, 5_000);
+        assert_eq!(cfg.status_cache_l1_ttl_ms, 2_000);
+        assert_eq!(cfg.status_cache_neg_ttl_ms, 1_000);
+        assert_eq!(cfg.status_cache_ttl_jitter, 0.2);
+        assert_eq!(cfg.redis_key_prefix, "tt");
+        assert_eq!(cfg.redis_command_timeout_ms, 200);
+        assert_eq!(cfg.redis_probe_interval_ms, 900_000);
+        assert_eq!(cfg.runs_cache_ttl_ms, 21_600_000);
+        assert_eq!(cfg.runs_cache_l1_ttl_ms, 300_000);
+        assert_eq!(cfg.runs_cache_neg_ttl_ms, 60_000);
+        assert_eq!(cfg.runs_cache_ttl_jitter, 0.1);
+        assert_eq!(cfg.runs_rate_limit_per_min, 10);
+        assert_eq!(cfg.runs_redis_key_prefix, "tt:runs:v1");
         assert_eq!(cfg.otel.trace_sample_ratio, 1.0);
         assert_eq!(cfg.otel.metric_export_interval_ms, 60_000);
     }

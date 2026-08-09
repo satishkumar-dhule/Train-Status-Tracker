@@ -15,6 +15,7 @@ tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "t
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.0", features = ["cors", "trace", "catch-panic"] }
 tracing = "0.1.44"
+tt-cache = { version = "0.1.0", path = "../cache" }
 tt-config = { version = "0.1.0", path = "../config" }
 tt-contract = { version = "0.1.0", path = "../contract" }
 tt-logging = { version = "0.1.0", path = "../logging" }
@@ -37,4 +38,5 @@ url = "2.5.8"
 async-trait = "0.1.89"
 http-body-util = "0.1.4"
 tower = { version = "0.5.3", features = ["util"] }
+tt-cache = { version = "0.1.0", path = "../cache", features = ["testkit"] }
 tt-provider-http = { version = "0.1.0", path = "../provider-http", features = ["testkit"] }

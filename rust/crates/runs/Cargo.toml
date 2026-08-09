@@ -1,0 +1,17 @@
+[package]
+name = "tt-runs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Run-date derivation via provider probing"
+
+[dependencies]
+futures-util = "0.3.31"
+serde = { version = "1.0.229", features = ["derive"] }
+tt-provider-http = { version = "0.1.0", path = "../provider-http" }
+tt-provider-paytm = { version = "0.1.0", path = "../provider-paytm" }
+tt-trains-data = { version = "0.1.0", path = "../trains-data" }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["macros", "rt", "rt-multi-thread"] }
+tt-provider-http = { version = "0.1.0", path = "../provider-http", features = ["testkit"] }

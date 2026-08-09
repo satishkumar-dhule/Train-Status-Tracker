@@ -36,6 +36,18 @@ pub fn is_valid_departure_date(raw: &str) -> bool {
     is_exactly_n_ascii_digits(raw, 8)
 }
 
+/// `^\d{10}$` — exactly 10 ASCII digits (e.g. 2315455889). PNR queries.
+pub fn is_valid_pnr(raw: &str) -> bool {
+    is_exactly_n_ascii_digits(raw, 10)
+}
+
+/// Station code used by the between-stations / at-station endpoints:
+/// 1–10 ASCII alphanumeric characters (Indian Railway codes are short
+/// uppercase mixtures of letters and digits, e.g. `NDLS`).
+pub fn is_valid_station_code(raw: &str) -> bool {
+    !raw.is_empty() && raw.len() <= 10 && raw.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
 fn is_exactly_n_ascii_digits(raw: &str, n: usize) -> bool {
     raw.len() == n && raw.bytes().all(|b| b.is_ascii_digit())
 }

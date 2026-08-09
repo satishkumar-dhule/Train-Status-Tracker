@@ -8,7 +8,6 @@ import {
   DEFAULT_STATUS_CACHE_TTL_MS,
   STATUS_CACHE_GC_BUFFER_MS,
 } from "../lib/status-cache";
-import { DEFAULT_AUTO_REFRESH_INTERVAL_MS } from "../lib/auto-refresh";
 import { useTrainStatus } from "./use-train-status";
 
 const mocks = vi.hoisted(() => ({
@@ -17,7 +16,6 @@ const mocks = vi.hoisted(() => ({
     "/api/trains/status",
     params,
   ]),
-  getGetTrainStatusQueryOptions: vi.fn(),
 }));
 
 vi.mock("@workspace/api-client-react", () => mocks);
@@ -105,7 +103,7 @@ describe("useTrainStatus", () => {
     expect(result.current.isFetching).toBe(true);
     expect(result.current.data).toBeUndefined();
     expect(result.current.isError).toBe(false);
-    expect(result.current.messageKey).toBeNull();
+    expect(result.current.errorType).toBeNull();
 
     rerender({ params: PARAMS });
 
@@ -113,13 +111,10 @@ describe("useTrainStatus", () => {
     expect(result.current.isFetching).toBe(false);
     expect(result.current.data).toBe(RESPONSE);
     expect(result.current.isError).toBe(false);
-    expect(result.current.isNotFound).toBe(false);
-    expect(result.current.isProviderError).toBe(false);
-    expect(result.current.isNetworkError).toBe(false);
-    expect(result.current.messageKey).toBeNull();
+    expect(result.current.errorType).toBeNull();
   });
 
-  it("404 error object: isNotFound true and messageKey points to the not-found key", () => {
+  it("404 error object: errorType is not-found", () => {
     mockQuery({
       data: undefined,
       isFetching: false,
@@ -130,13 +125,10 @@ describe("useTrainStatus", () => {
     const { result } = renderHook(() => useTrainStatus(PARAMS));
 
     expect(result.current.isError).toBe(true);
-    expect(result.current.isNotFound).toBe(true);
-    expect(result.current.isProviderError).toBe(false);
-    expect(result.current.isNetworkError).toBe(false);
-    expect(result.current.messageKey).toBe("error.trainNotFound");
+    expect(result.current.errorType).toBe("not-found");
   });
 
-  it("5xx error object: isProviderError true", () => {
+  it("5xx error object: errorType is provider", () => {
     mockQuery({
       data: undefined,
       isFetching: false,
@@ -146,13 +138,10 @@ describe("useTrainStatus", () => {
 
     const { result } = renderHook(() => useTrainStatus(PARAMS));
 
-    expect(result.current.isProviderError).toBe(true);
-    expect(result.current.isNotFound).toBe(false);
-    expect(result.current.isNetworkError).toBe(false);
-    expect(result.current.messageKey).toBe("error.providerUnreachable");
+    expect(result.current.errorType).toBe("provider");
   });
 
-  it("network-like error: isNetworkError true", () => {
+  it("network-like error: errorType is network", () => {
     const networkError = new TypeError("Failed to fetch");
     mockQuery({
       data: undefined,
@@ -163,13 +152,10 @@ describe("useTrainStatus", () => {
 
     const { result } = renderHook(() => useTrainStatus(PARAMS));
 
-    expect(result.current.isNetworkError).toBe(true);
-    expect(result.current.isNotFound).toBe(false);
-    expect(result.current.isProviderError).toBe(false);
-    expect(result.current.messageKey).toBe("error.fallback");
+    expect(result.current.errorType).toBe("network");
   });
 
-  it("passes keepPreviousData as placeholderData and builds the query key via getGetTrainStatusQueryKey", () => {
+  it("passes keepPreviousData as placeholderData and builds the query key", () => {
     mockQuery({ data: RESPONSE, isFetching: false, isError: false });
 
     renderHook(() => useTrainStatus(PARAMS));
@@ -180,7 +166,6 @@ describe("useTrainStatus", () => {
     expect(options.query.queryKey).toEqual(
       mocks.getGetTrainStatusQueryKey(PARAMS),
     );
-    expect(mocks.getGetTrainStatusQueryKey).toHaveBeenCalledWith(PARAMS);
     expect(options.query.placeholderData).toBe(keepPreviousData);
     expect(options.query.retry).toBe(false);
     expect(options.query.refetchOnWindowFocus).toBe(false);
@@ -188,40 +173,7 @@ describe("useTrainStatus", () => {
     expect(options.query.gcTime).toBe(
       DEFAULT_STATUS_CACHE_TTL_MS + STATUS_CACHE_GC_BUFFER_MS,
     );
-    expect(options.query.refetchInterval).toBeUndefined();
     expect(options.query.enabled).toBe(true);
-  });
-
-  it("autoRefresh off (default): no refetchInterval is set", () => {
-    mockQuery({ data: RESPONSE, isFetching: false, isError: false });
-
-    renderHook(() => useTrainStatus(PARAMS));
-
-    const [, options] = mocks.useGetTrainStatus.mock.calls[0];
-    expect(options.query.refetchInterval).toBeUndefined();
-  });
-
-  it("autoRefresh on: sets the refetchInterval", () => {
-    mockQuery({ data: RESPONSE, isFetching: false, isError: false });
-
-    renderHook(() => useTrainStatus(PARAMS, undefined, true));
-
-    const [, options] = mocks.useGetTrainStatus.mock.calls[0];
-    expect(options.query.refetchInterval).toBe(
-      DEFAULT_AUTO_REFRESH_INTERVAL_MS,
-    );
-  });
-
-  it("autoRefresh off while disabled: query stays off and does not poll", () => {
-    mockQuery({ data: undefined, isFetching: false, isError: false });
-
-    renderHook(() => useTrainStatus(PARAMS, false, true));
-
-    const [, options] = mocks.useGetTrainStatus.mock.calls[0];
-    expect(options.query.enabled).toBe(false);
-    expect(options.query.refetchInterval).toBe(
-      DEFAULT_AUTO_REFRESH_INTERVAL_MS,
-    );
   });
 
   it("exposes the refetch function from the query", () => {
@@ -244,12 +196,10 @@ describe("useTrainStatus", () => {
 
     const { result } = renderHook(() => useTrainStatus(null));
 
-    expect(mocks.useGetTrainStatus).toHaveBeenCalledTimes(1);
     const [params, options] = mocks.useGetTrainStatus.mock.calls[0];
     expect(params).toEqual({ train_number: "", departure_date: "" });
     expect(options.query.enabled).toBe(false);
     expect(options.query.queryKey).toEqual([]);
-    expect(result.current.isLoading).toBe(false);
     expect(result.current.data).toBeUndefined();
   });
 

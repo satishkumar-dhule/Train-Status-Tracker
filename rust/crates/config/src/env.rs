@@ -110,6 +110,25 @@ pub(crate) fn origin_list(raw: Option<&str>) -> Option<Vec<String>> {
     (!origins.is_empty()).then_some(origins)
 }
 
+/// Fraction in `[0, 1)` — used for `STATUS_CACHE_TTL_JITTER`. Anything else
+/// (non-numeric, negative, `>= 1`) falls back; `0` is valid (disables jitter).
+pub(crate) fn fraction(env: &BTreeMap<String, String>, key: &str, fallback: f64) -> f64 {
+    let Ok(raw) = env
+        .get(key)
+        .map(String::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .parse::<f64>()
+    else {
+        return fallback;
+    };
+    if raw.is_finite() && (0.0..1.0).contains(&raw) {
+        raw
+    } else {
+        fallback
+    }
+}
+
 const DEFAULT_SAMPLE_RATIO: f64 = 1.0;
 
 #[cfg(test)]
@@ -201,5 +220,20 @@ mod tests {
         assert_eq!(sample_ratio(Some("1.5")), 1.0);
         assert_eq!(sample_ratio(Some("NaN")), 1.0);
         assert_eq!(sample_ratio(None), 1.0);
+    }
+
+    #[test]
+    fn fraction_stays_in_half_open_range() {
+        let fallback = 0.2;
+        assert_eq!(fraction(&env(&[("J", "0")]), "J", fallback), 0.0);
+        assert_eq!(fraction(&env(&[("J", "0.25")]), "J", fallback), 0.25);
+        assert_eq!(fraction(&BTreeMap::new(), "J", fallback), fallback);
+        for value in ["1", "1.0", "-0.5", "abc", "NaN", "Infinity", "", "  "] {
+            assert_eq!(
+                fraction(&env(&[("J", value)]), "J", fallback),
+                fallback,
+                "value {value:?} should fall back"
+            );
+        }
     }
 }

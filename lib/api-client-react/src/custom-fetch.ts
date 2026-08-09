@@ -29,6 +29,11 @@ export function setBaseUrl(url: string | null): void {
   _baseUrl = url ? url.replace(/\/+$/, "") : null;
 }
 
+/** The currently configured base URL (null when requests are same-origin). */
+export function getBaseUrl(): string | null {
+  return _baseUrl;
+}
+
 /**
  * Register a getter that supplies a bearer auth token.  Before every fetch
  * the getter is invoked; when it returns a non-null string, an

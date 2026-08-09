@@ -10,6 +10,8 @@ default = []
 # Real ioredis-analog store (the `redis` crate). OFF by default so tests stay
 # hermetic; the api-server enables it for production wiring.
 real-client = ["dep:redis"]
+# In-memory `RedisStore` for hermetic downstream tests (api-server route tests).
+testkit = []
 
 [dependencies]
 async-trait = "0.1.91"
@@ -20,7 +22,7 @@ serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["rt", "time", "sync"] }
 tracing = "0.1.44"
 tt-telemetry = { version = "0.1.0", path = "../telemetry" }
-redis = { version = "0.29.7", features = ["tokio-comp", "connection-manager"], optional = true }
+redis = { version = "0.29.5", features = ["tokio-comp", "connection-manager"], optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full", "test-util"] }

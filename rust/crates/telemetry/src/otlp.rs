@@ -194,6 +194,7 @@ impl ProviderMetrics {
 /// size gauge, the `trains.status.redis.requests` counter (with `operation`
 /// and `outcome` attributes), and the `trains.status.redis.duration`
 /// histogram (seconds).
+#[derive(Clone)]
 pub struct CacheMetrics {
     hits: Option<Counter<u64>>,
     misses: Option<Counter<u64>>,
@@ -317,6 +318,75 @@ impl CacheMetrics {
                     KeyValue::new("outcome", outcome.to_string()),
                 ],
             );
+        }
+    }
+}
+
+/// Rate-limit decision recorder. Port of the counter created by
+/// `createRateLimitMiddleware` in `lib/rate-limit.ts`: `app.rate_limit.decisions`
+/// incremented by 1 with `result` and an optional `route` attribute.
+pub struct RateLimitMetrics {
+    counter: Option<Counter<u64>>,
+}
+
+impl RateLimitMetrics {
+    pub(crate) fn noop() -> RateLimitMetrics {
+        RateLimitMetrics { counter: None }
+    }
+
+    pub(crate) fn from_meter(meter: opentelemetry::metrics::Meter) -> RateLimitMetrics {
+        let counter = meter
+            .u64_counter("app.rate_limit.decisions")
+            .with_description("Rate-limit decisions by outcome.")
+            .with_unit("{decision}")
+            .build();
+        RateLimitMetrics {
+            counter: Some(counter),
+        }
+    }
+
+    /// Records one decision. The client key is deliberately NOT an attribute
+    /// (it is high-cardinality user input), only the decision and the route
+    /// label are. No-op when telemetry is disabled.
+    pub fn record_decision(&self, result: &str, route: Option<&str>) {
+        if let Some(counter) = &self.counter {
+            let mut attributes = vec![KeyValue::new("result", result.to_string())];
+            if let Some(route) = route {
+                attributes.push(KeyValue::new("route", route.to_string()));
+            }
+            counter.add(1, &attributes);
+        }
+    }
+}
+
+/// Train run-date lookup recorder. Port of the counter created by
+/// `getRunsRequestsCounter` in `lib/routes/train-runs.ts`:
+/// `trains.runs.requests` incremented by 1 with a `result` attribute.
+pub struct RunsRequestsMetrics {
+    counter: Option<Counter<u64>>,
+}
+
+impl RunsRequestsMetrics {
+    pub(crate) fn noop() -> RunsRequestsMetrics {
+        RunsRequestsMetrics { counter: None }
+    }
+
+    pub(crate) fn from_meter(meter: opentelemetry::metrics::Meter) -> RunsRequestsMetrics {
+        let counter = meter
+            .u64_counter("trains.runs.requests")
+            .with_description("Train run-date lookups by result")
+            .build();
+        RunsRequestsMetrics {
+            counter: Some(counter),
+        }
+    }
+
+    /// Records one train run-date lookup with its `result` attribute (`ok` /
+    /// `validation_error` / `upstream_error` / `internal_error`). No-op when
+    /// telemetry is disabled.
+    pub fn record_result(&self, result: &str) {
+        if let Some(counter) = &self.counter {
+            counter.add(1, &[KeyValue::new("result", result.to_string())]);
         }
     }
 }

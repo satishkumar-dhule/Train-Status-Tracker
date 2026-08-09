@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import "@testing-library/jest-dom/vitest";
 import type React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";

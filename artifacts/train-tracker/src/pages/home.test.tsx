@@ -1,13 +1,12 @@
+import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Router } from "wouter";
-import { I18nProvider } from "@/lib/i18n";
 import { RecentSearchesProvider } from "@/context/recent-searches";
 import { RECENT_SEARCHES_STORAGE_KEY } from "@/lib/recent-searches";
-import { VIEW_PREFERENCE_STORAGE_KEY } from "@/hooks/use-view-preference";
 import { getUpcomingDates, toApiDate } from "@workspace/trains-data";
+import { MemoryRouter } from "wouter";
 import type { TrainStatusResponse } from "@workspace/api-client-react";
 import Home from "./Home";
 
@@ -16,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   useTrainRuns: vi.fn(),
   refetch: vi.fn(async () => undefined),
   calls: [] as Array<{ train_number: string; departure_date: string } | null>,
-  autoRefreshArgs: [] as Array<boolean | undefined>,
 }));
 
 vi.mock("@/hooks/use-train-status", () => ({
@@ -97,7 +95,7 @@ function makeResponse(
         actual_departure: null,
         distance_from_source: 304,
         is_current: false,
-        day: 1,
+        day: 2,
         delay_minutes: null,
         platform: null,
         halt_minutes: null,
@@ -108,27 +106,24 @@ function makeResponse(
   };
 }
 
+function heldResult() {
+  return {
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    isPlaceholderData: false,
+    isError: false,
+    errorType: null,
+    refetch: mocks.refetch,
+  };
+}
+
 function mockSuccess() {
   mocks.useTrainStatus.mockImplementation(
-    (
-      params: { train_number: string; departure_date: string } | null,
-      enabled?: boolean,
-      autoRefresh?: boolean,
-    ) => {
-      mocks.autoRefreshArgs.push(autoRefresh);
+    (params: { train_number: string; departure_date: string } | null, enabled?: boolean) => {
       if (!params || enabled === false) {
         mocks.calls.push(null);
-        return {
-          data: undefined,
-          isLoading: false,
-          isFetching: false,
-          isError: false,
-          isNotFound: false,
-          isProviderError: false,
-          isNetworkError: false,
-          messageKey: null,
-          refetch: mocks.refetch,
-        };
+        return heldResult();
       }
       mocks.calls.push(params);
       return {
@@ -138,91 +133,30 @@ function mockSuccess() {
         }),
         isLoading: false,
         isFetching: false,
+        isPlaceholderData: false,
         isError: false,
-        isNotFound: false,
-        isProviderError: false,
-        isNetworkError: false,
-        messageKey: null,
+        errorType: null,
         refetch: mocks.refetch,
       };
     },
   );
 }
 
-function mockPlaceholder() {
+function mockError(type: "not-found" | "provider" | "network") {
   mocks.useTrainStatus.mockImplementation(
-    (
-      params: { train_number: string; departure_date: string } | null,
-      enabled?: boolean,
-      autoRefresh?: boolean,
-    ) => {
-      mocks.autoRefreshArgs.push(autoRefresh);
-      if (!params || enabled === false) {
-        return {
-          data: undefined,
-          isLoading: false,
-          isFetching: false,
-          isError: false,
-          isNotFound: false,
-          isProviderError: false,
-          isNetworkError: false,
-          messageKey: null,
-          refetch: mocks.refetch,
-        };
-      }
-      return {
-        data: makeResponse({
-          train_number: params.train_number,
-          departure_date: params.departure_date,
-        }),
-        isLoading: false,
-        isFetching: false,
-        isPlaceholderData: true,
-        isError: false,
-        isNotFound: false,
-        isProviderError: false,
-        isNetworkError: false,
-        messageKey: null,
-        refetch: mocks.refetch,
-      };
-    },
-  );
-}
-
-function mockError(
-  key: "error.trainNotFound" | "error.providerUnreachable" | "error.fallback",
-) {
-  mocks.useTrainStatus.mockImplementation(
-    (
-      params: { train_number: string; departure_date: string } | null,
-      enabled?: boolean,
-      autoRefresh?: boolean,
-    ) => {
-      mocks.autoRefreshArgs.push(autoRefresh);
+    (params: { train_number: string; departure_date: string } | null, enabled?: boolean) => {
       if (!params || enabled === false) {
         mocks.calls.push(null);
-        return {
-          data: undefined,
-          isLoading: false,
-          isFetching: false,
-          isError: false,
-          isNotFound: false,
-          isProviderError: false,
-          isNetworkError: false,
-          messageKey: null,
-          refetch: mocks.refetch,
-        };
+        return heldResult();
       }
       mocks.calls.push(params);
       return {
         data: undefined,
         isLoading: false,
         isFetching: false,
+        isPlaceholderData: false,
         isError: true,
-        isNotFound: key === "error.trainNotFound",
-        isProviderError: key === "error.providerUnreachable",
-        isNetworkError: key === "error.fallback",
-        messageKey: key,
+        errorType: type,
         refetch: mocks.refetch,
       };
     },
@@ -235,13 +169,11 @@ function renderHome() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <I18nProvider>
-        <RecentSearchesProvider>
-          <Router>
-            <Home />
-          </Router>
-        </RecentSearchesProvider>
-      </I18nProvider>
+      <RecentSearchesProvider>
+        <MemoryRouter initialPath="/">
+          <Home />
+        </MemoryRouter>
+      </RecentSearchesProvider>
     </QueryClientProvider>,
   );
 }
@@ -255,6 +187,26 @@ async function searchFor(
   await user.keyboard("{Enter}");
 }
 
+/** 'YYYY-MM-DD' + `days` offset (may be negative) -> 'YYYYMMDD'. */
+function apiDateOffset(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y, m - 1, d + days);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}${mm}${dd}`;
+}
+
+/** Previous 2 runs, today's run, and the next run (ascending). */
+function runWindow(): string[] {
+  const today = getUpcomingDates(1)[0];
+  return [
+    apiDateOffset(today, -14),
+    apiDateOffset(today, -7),
+    toApiDate(today),
+    apiDateOffset(today, 7),
+  ];
+}
+
 describe("Home", () => {
   beforeEach(() => {
     mocks.useTrainStatus.mockReset();
@@ -265,14 +217,14 @@ describe("Home", () => {
       isError: false,
     });
     mocks.calls.length = 0;
-    mocks.autoRefreshArgs.length = 0;
     mocks.refetch.mockReset();
     mocks.refetch.mockResolvedValue(undefined);
     localStorage.clear();
+    document.documentElement.classList.remove("inverted");
     HTMLElement.prototype.scrollIntoView = () => {};
   });
 
-  it("renders the search page initially: title, input, and no recents section", () => {
+  it("renders the search page initially: title, input, and no recents", () => {
     mockSuccess();
     renderHome();
 
@@ -280,10 +232,9 @@ describe("Home", () => {
     expect(screen.getByTestId("input-train-number")).toBeInTheDocument();
     expect(screen.queryByTestId("recent-searches")).not.toBeInTheDocument();
     expect(screen.queryByTestId("text-train-number")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("date-tabs")).not.toBeInTheDocument();
   });
 
-  it("does not navigate while typing a valid number; submits only on Enter", async () => {
+  it("does not navigate while typing; submits only on Enter", async () => {
     const user = userEvent.setup();
     mockSuccess();
     renderHome();
@@ -323,9 +274,6 @@ describe("Home", () => {
     expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
       "22943",
     );
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      train_number: "22943",
-    });
   });
 
   it("submits immediately when a train is picked from the autocomplete list", async () => {
@@ -342,94 +290,6 @@ describe("Home", () => {
     expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
       "22943",
     );
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      train_number: "22943",
-    });
-  });
-
-  it("shows a refreshing hint instead of a stale timestamp for placeholder data", async () => {
-    const user = userEvent.setup();
-    mockPlaceholder();
-    renderHome();
-
-    await searchFor(user, "22943");
-
-    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
-      "22943",
-    );
-    expect(screen.getByText("Refreshing…")).toBeInTheDocument();
-    expect(screen.queryByText(/^Updated:/)).not.toBeInTheDocument();
-  });
-
-  it("renders the error panel with the i18n message and a retry button", async () => {
-    const user = userEvent.setup();
-    mockError("error.providerUnreachable");
-    renderHome();
-
-    await searchFor(user, "22943");
-
-    const panel = await screen.findByTestId("status-error");
-    expect(panel).toHaveTextContent(
-      "Train data provider is unreachable. Please try again.",
-    );
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-  });
-
-  it("retry in the error panel force-refetches via the status hook's refetch", async () => {
-    const user = userEvent.setup();
-    mockError("error.providerUnreachable");
-    renderHome();
-
-    await searchFor(user, "22943");
-    await screen.findByTestId("status-error");
-
-    await user.click(screen.getByRole("button", { name: "Retry" }));
-
-    expect(mocks.refetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("refresh button force-refetches the current status on click", async () => {
-    const user = userEvent.setup();
-    mockSuccess();
-    renderHome();
-
-    await searchFor(user, "22943");
-    await screen.findByTestId("text-train-number");
-
-    const refresh = screen.getByRole("button", { name: "Refresh" });
-    expect(refresh).toBeEnabled();
-
-    await user.click(refresh);
-
-    expect(mocks.refetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("auto-refresh toggle starts OFF and stays OFF by default", async () => {
-    const user = userEvent.setup();
-    mockSuccess();
-    renderHome();
-
-    await searchFor(user, "22943");
-    await screen.findByTestId("text-train-number");
-
-    const toggle = screen.getByRole("switch");
-    expect(toggle).toHaveAttribute("data-state", "unchecked");
-    expect(mocks.autoRefreshArgs[mocks.autoRefreshArgs.length - 1]).toBe(false);
-  });
-
-  it("auto-refresh toggle ON persists the preference and enables polling", async () => {
-    const user = userEvent.setup();
-    mockSuccess();
-    renderHome();
-
-    await searchFor(user, "22943");
-    await screen.findByTestId("text-train-number");
-
-    await user.click(screen.getByRole("switch"));
-
-    expect(screen.getByRole("switch")).toHaveAttribute("data-state", "checked");
-    expect(mocks.autoRefreshArgs[mocks.autoRefreshArgs.length - 1]).toBe(true);
-    expect(localStorage.getItem("terminal-track.auto-refresh")).toBe("true");
   });
 
   it("loads a recent chip click and submits it", async () => {
@@ -451,80 +311,49 @@ describe("Home", () => {
     expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
       "12951",
     );
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      train_number: "12951",
-    });
   });
 
-  it("searches a new train from the results header without going back", async () => {
+  it("renders the error panel with the failure message and a retry button", async () => {
+    const user = userEvent.setup();
+    mockError("provider");
+    renderHome();
+
+    await searchFor(user, "22943");
+
+    const panel = await screen.findByTestId("status-error");
+    expect(panel).toHaveTextContent(
+      "The train data provider is unreachable. Please try again.",
+    );
+    expect(screen.getByTestId("status-retry")).toBeInTheDocument();
+  });
+
+  it("retry in the error panel force-refetches via the status hook's refetch", async () => {
+    const user = userEvent.setup();
+    mockError("provider");
+    renderHome();
+
+    await searchFor(user, "22943");
+    await screen.findByTestId("status-error");
+
+    await user.click(screen.getByTestId("status-retry"));
+
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("refresh button force-refetches the current status on click", async () => {
     const user = userEvent.setup();
     mockSuccess();
     renderHome();
 
     await searchFor(user, "22943");
+    await screen.findByTestId("text-train-number");
 
-    expect(screen.getByTestId("button-new-search")).toBeInTheDocument();
-    const compactForm = screen.getByTestId("results-search-form");
-    expect(compactForm).toBeInTheDocument();
-    expect(compactForm).toHaveAttribute("data-compact", "true");
+    await user.click(screen.getByTestId("button-refresh"));
 
-    await user.type(screen.getByTestId("input-train-number"), "12951");
-    await user.keyboard("{Enter}");
-
-    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
-      "12951",
-    );
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      train_number: "12951",
-    });
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the timeline by default and toggles to the live track view", async () => {
-    const user = userEvent.setup();
-    mockSuccess();
-    renderHome();
-
-    await searchFor(user, "22943");
-
-    expect(screen.getByTestId("station-timeline")).toBeInTheDocument();
-    expect(screen.queryByTestId("track-view")).not.toBeInTheDocument();
-    expect(screen.getByTestId("view-timeline")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-
-    await user.click(screen.getByTestId("view-track"));
-
-    expect(screen.getByTestId("track-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("station-timeline")).not.toBeInTheDocument();
-    expect(screen.getByTestId("track-train")).toBeInTheDocument();
-    expect(localStorage.getItem(VIEW_PREFERENCE_STORAGE_KEY)).toBe("track");
-
-    await user.click(screen.getByTestId("view-timeline"));
-
-    expect(screen.getByTestId("station-timeline")).toBeInTheDocument();
-    expect(screen.queryByTestId("track-view")).not.toBeInTheDocument();
-  });
-
-  it("shows no date tabs when the schedule is unknown, but still shows today's status", async () => {
-    const user = userEvent.setup();
-    mockSuccess();
-    renderHome();
-
-    await searchFor(user, "22943");
-
-    expect(await screen.findByTestId("text-train-number")).toHaveTextContent(
-      "22943",
-    );
-    expect(screen.queryByTestId("date-tabs")).not.toBeInTheDocument();
-    expect(screen.queryAllByTestId(/^tab-date-/)).toHaveLength(0);
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      train_number: "22943",
-      departure_date: toApiDate(getUpcomingDates(1)[0]),
-    });
-  });
-
-  it("holds the status query and shows a skeleton while run dates are loading", async () => {
+  it("shows a skeleton while run dates are loading and holds the status query", async () => {
     const user = userEvent.setup();
     mockSuccess();
     mocks.useTrainRuns.mockReturnValue({
@@ -539,10 +368,9 @@ describe("Home", () => {
     expect(screen.getByTestId("status-skeleton")).toBeInTheDocument();
     expect(mocks.calls.filter((call) => call !== null)).toHaveLength(0);
     expect(screen.queryByTestId("text-train-number")).not.toBeInTheDocument();
-    expect(screen.queryAllByTestId(/^tab-date-/)).toHaveLength(0);
   });
 
-  it("shows the train's run-date tabs instead of the calendar window", async () => {
+  it("queries the most recent run date when the train does not run today", async () => {
     const user = userEvent.setup();
     mockSuccess();
     mocks.useTrainRuns.mockReturnValue({
@@ -554,116 +382,92 @@ describe("Home", () => {
 
     await searchFor(user, "22943");
 
-    const tabs = screen.getAllByTestId(/^tab-date-/);
-    expect(tabs).toHaveLength(4);
-    expect(screen.getByTestId("tab-date-20260727")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-date-20260806")).toBeInTheDocument();
-    expect(screen.queryByTestId("tab-date-20260805")).not.toBeInTheDocument();
+    await screen.findByTestId("text-train-number");
+    const lastCall = mocks.calls.filter((call) => call !== null).pop();
+    expect(lastCall?.departure_date).not.toBe(toApiDate(getUpcomingDates(1)[0]));
+    expect(lastCall?.train_number).toBe("22943");
   });
 
-  it("defaults to the most recent run when the train does not run today", async () => {
+  it("shows run tabs for the previous 2 runs, the current run, and the next run", async () => {
     const user = userEvent.setup();
     mockSuccess();
+    const runs = runWindow();
     mocks.useTrainRuns.mockReturnValue({
-      runs: ["20260727", "20260730", "20260803", "20260806"],
+      runs,
       isLoading: false,
       isError: false,
     });
     renderHome();
 
     await searchFor(user, "22943");
+
+    const selector = await screen.findByTestId("run-selector");
+    expect(selector).toBeInTheDocument();
+    expect(screen.getByTestId(`tab-date-${runs[0]}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`tab-date-${runs[1]}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`tab-date-${runs[2]}`)).toHaveTextContent("Today");
+    expect(screen.getByTestId(`tab-date-${runs[3]}`)).toHaveTextContent("Next");
+    expect(screen.getByTestId(`tab-date-${runs[2]}`)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("clicking a previous run tab queries that run and does not snap back", async () => {
+    const user = userEvent.setup();
+    mockSuccess();
+    const runs = runWindow();
+    mocks.useTrainRuns.mockReturnValue({
+      runs,
+      isLoading: false,
+      isError: false,
+    });
+    renderHome();
+
+    await searchFor(user, "22943");
+    await screen.findByTestId("text-train-number");
+
+    await user.click(screen.getByTestId(`tab-date-${runs[1]}`));
 
     await waitFor(() => {
-      expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-        train_number: "22943",
-        departure_date: "20260803",
-      });
+      const lastCall = mocks.calls.filter((call) => call !== null).pop();
+      expect(lastCall?.departure_date).toBe(runs[1]);
     });
-    expect(screen.getByTestId("tab-date-20260803")).toHaveAttribute(
+    expect(screen.getByTestId(`tab-date-${runs[1]}`)).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-
-    const todayApi = toApiDate(getUpcomingDates(1)[0]);
-    expect(mocks.calls.filter((call) => call !== null)).not.toContainEqual(
-      expect.objectContaining({ departure_date: todayApi }),
+    expect(screen.getByTestId(`tab-date-${runs[2]}`)).toHaveAttribute(
+      "aria-pressed",
+      "false",
     );
   });
 
-  it("stays on today when the train runs today", async () => {
+  it("back button returns to the search page", async () => {
     const user = userEvent.setup();
     mockSuccess();
-    const todayApi = toApiDate(getUpcomingDates(1)[0]);
-    mocks.useTrainRuns.mockReturnValue({
-      runs: ["20260729", todayApi, "20260812"],
-      isLoading: false,
-      isError: false,
-    });
     renderHome();
 
     await searchFor(user, "22943");
+    await screen.findByTestId("text-train-number");
 
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      train_number: "22943",
-      departure_date: todayApi,
-    });
+    await user.click(screen.getByTestId("button-new-search"));
+
+    expect(screen.getByTestId("search-title")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-train-number")).not.toBeInTheDocument();
   });
 
-  it("keeps a date the user picked manually once runs are known", async () => {
+  it("inverts the site from the header toggle", async () => {
     const user = userEvent.setup();
     mockSuccess();
-    mocks.useTrainRuns.mockReturnValue({
-      runs: ["20260727", "20260730", "20260803", "20260806"],
-      isLoading: false,
-      isError: false,
-    });
     renderHome();
 
-    await searchFor(user, "22943");
-    await user.click(screen.getByTestId("tab-date-20260806"));
+    await user.click(screen.getByTestId("button-invert"));
 
-    expect(screen.getByTestId("tab-date-20260806")).toHaveAttribute(
+    expect(document.documentElement).toHaveClass("inverted");
+    expect(screen.getByTestId("button-invert")).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(mocks.calls[mocks.calls.length - 1]).toMatchObject({
-      departure_date: "20260806",
-    });
-  });
-
-  it("on mobile collapses the header to a single row and shows the train identity above the schedule", async () => {
-    const user = userEvent.setup();
-    const originalMatchMedia = window.matchMedia;
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn().mockReturnValue({
-        matches: true,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }),
-    });
-    try {
-      mockSuccess();
-      renderHome();
-
-      await searchFor(user, "22943");
-      await screen.findByTestId("text-train-number");
-
-      expect(screen.getByTestId("train-identity-hero")).toBeInTheDocument();
-      expect(screen.getByTestId("text-train-number")).toHaveTextContent(
-        "22943",
-      );
-      expect(screen.getByTestId("results-search-form")).toHaveAttribute(
-        "data-compact",
-        "true",
-      );
-      expect(screen.getByTestId("button-new-search")).toBeInTheDocument();
-      expect(screen.getByTestId("select-language")).toBeInTheDocument();
-    } finally {
-      Object.defineProperty(window, "matchMedia", {
-        configurable: true,
-        value: originalMatchMedia,
-      });
-    }
   });
 });

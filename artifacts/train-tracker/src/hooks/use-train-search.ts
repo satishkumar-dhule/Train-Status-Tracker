@@ -10,61 +10,45 @@ export interface UseTrainSearchOptions {
 }
 
 export interface UseTrainSearchApi {
-  trainNo: string;
-  setTrainNo: (value: string) => void;
-  trainValidity: TrainValidationState;
-  setTrainValidity: (state: TrainValidationState) => void;
-  selectedTrain: TrainEntry | null;
-  setSelectedTrain: (train: TrainEntry | null) => void;
-  headerNo: string;
-  setHeaderNo: (value: string) => void;
-  headerValidity: TrainValidationState;
-  setHeaderValidity: (state: TrainValidationState) => void;
-  headerSelected: TrainEntry | null;
-  setHeaderSelected: (train: TrainEntry | null) => void;
+  value: string;
+  setValue: (value: string) => void;
+  validity: TrainValidationState;
+  setValidity: (state: TrainValidationState) => void;
+  selected: TrainEntry | null;
+  setSelected: (train: TrainEntry | null) => void;
   searched: boolean;
   apiParams: { train_number: string; departure_date: string };
-  userPickedDate: boolean;
-  handleSearchFormSubmit: () => void;
-  handleSelectRecent: (train: TrainEntry) => void;
-  handleResultsSearch: () => void;
-  selectDate: (apiDate: string) => void;
   setDepartureDate: (apiDate: string) => void;
+  /** True once the user picked a run tab; the auto-land effect stops after. */
+  userPickedDate: boolean;
+  /** Pick a run tab explicitly; marks the choice as user-made. */
+  selectDate: (apiDate: string) => void;
+  handleSubmit: () => void;
+  handleSelectRecent: (train: TrainEntry) => void;
   reset: () => void;
 }
 
 /**
- * Owns the page-1 and results-header search state plus the "submitted" train
- * query. Search is explicit: typing alone never navigates — Enter, the submit
- * button, an autocomplete selection, or a recent chip does.
+ * Owns the search box state and the "submitted" train query. Search is
+ * explicit: typing alone never navigates — Enter, the submit button, an
+ * autocomplete selection, or a recent chip does.
  */
 export function useTrainSearch({
   trains,
   addRecent,
 }: UseTrainSearchOptions): UseTrainSearchApi {
-  const [trainNo, setTrainNo] = useState("");
-  const [trainValidity, setTrainValidity] = useState<TrainValidationState>({
+  const [value, setValue] = useState("");
+  const [validity, setValidity] = useState<TrainValidationState>({
     status: "idle",
   });
-  const [selectedTrain, setSelectedTrain] = useState<TrainEntry | null>(null);
-
-  const [headerNo, setHeaderNo] = useState("");
-  const [headerValidity, setHeaderValidity] = useState<TrainValidationState>({
-    status: "idle",
-  });
-  const [headerSelected, setHeaderSelected] = useState<TrainEntry | null>(null);
+  const [selected, setSelected] = useState<TrainEntry | null>(null);
 
   const [searched, setSearched] = useState(false);
   const [apiParams, setApiParams] = useState({
     train_number: "",
     departure_date: "",
   });
-
-  /** True once the user picks a date tab manually; clears on a new train. */
   const [userPickedDate, setUserPickedDate] = useState(false);
-  useEffect(() => {
-    setUserPickedDate(false);
-  }, [apiParams.train_number]);
 
   const today = useMemo(() => toApiDate(getUpcomingDates(1)[0]), []);
 
@@ -81,93 +65,54 @@ export function useTrainSearch({
   // Explicitly picking a train from a suggestion list or a recent chip is an
   // intent to search it, so it submits immediately. Typing alone never does.
   useEffect(() => {
-    if (searched || !selectedTrain) return;
-    submitSearch(selectedTrain);
-  }, [searched, selectedTrain, submitSearch]);
+    if (searched || !selected) return;
+    submitSearch(selected);
+  }, [searched, selected, submitSearch]);
 
-  const handleSearchFormSubmit = () => {
-    const train = resolveTrain(trainNo, selectedTrain, trains);
+  const handleSubmit = () => {
+    const train = resolveTrain(value, selected, trains);
     if (!train) return;
     submitSearch(train);
   };
 
   const handleSelectRecent = (train: TrainEntry) => {
-    setTrainNo(train.number);
-    setSelectedTrain(train);
-    setTrainValidity({ status: "valid", message: "hint.valid" });
+    setValue(train.number);
+    setSelected(train);
+    setValidity({ status: "valid", message: "Valid" });
   };
 
-  const resetHeaderSearch = useCallback(() => {
-    setHeaderNo("");
-    setHeaderSelected(null);
-    setHeaderValidity({ status: "idle" });
+  const setDepartureDate = useCallback((apiDate: string) => {
+    setApiParams((prev) => ({ ...prev, departure_date: apiDate }));
   }, []);
-
-  const handleResultsSearch = () => {
-    const train = resolveTrain(headerNo, headerSelected, trains);
-    if (!train || train.number === apiParams.train_number) return;
-    submitSearch(train);
-    resetHeaderSearch();
-  };
-
-  // Selecting a train from the results-header suggestions submits it too.
-  useEffect(() => {
-    if (!searched || !headerSelected) return;
-    if (headerSelected.number === apiParams.train_number) {
-      resetHeaderSearch();
-      return;
-    }
-    submitSearch(headerSelected);
-    resetHeaderSearch();
-  }, [
-    searched,
-    headerSelected,
-    apiParams.train_number,
-    submitSearch,
-    resetHeaderSearch,
-  ]);
 
   const selectDate = useCallback((apiDate: string) => {
     setUserPickedDate(true);
     setApiParams((prev) => ({ ...prev, departure_date: apiDate }));
   }, []);
 
-  const setDepartureDate = useCallback((apiDate: string) => {
-    setApiParams((prev) => ({ ...prev, departure_date: apiDate }));
-  }, []);
-
   const reset = useCallback(() => {
     setSearched(false);
-    setTrainNo("");
-    setSelectedTrain(null);
-    setTrainValidity({ status: "idle" });
-    setHeaderNo("");
-    setHeaderSelected(null);
-    setHeaderValidity({ status: "idle" });
+    setValue("");
+    setSelected(null);
+    setValidity({ status: "idle" });
+    setUserPickedDate(false);
     setApiParams({ train_number: "", departure_date: "" });
   }, []);
 
   return {
-    trainNo,
-    setTrainNo,
-    trainValidity,
-    setTrainValidity,
-    selectedTrain,
-    setSelectedTrain,
-    headerNo,
-    setHeaderNo,
-    headerValidity,
-    setHeaderValidity,
-    headerSelected,
-    setHeaderSelected,
+    value,
+    setValue,
+    validity,
+    setValidity,
+    selected,
+    setSelected,
     searched,
     apiParams,
-    userPickedDate,
-    handleSearchFormSubmit,
-    handleSelectRecent,
-    handleResultsSearch,
-    selectDate,
     setDepartureDate,
+    userPickedDate,
+    selectDate,
+    handleSubmit,
+    handleSelectRecent,
     reset,
   };
 }

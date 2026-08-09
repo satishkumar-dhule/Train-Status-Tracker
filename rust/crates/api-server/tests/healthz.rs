@@ -5,7 +5,11 @@
 //! byte layout captured from the reference server's `/api/healthz`.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use axum::body::Body;
 use axum::http::header;
@@ -15,9 +19,11 @@ use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
 
-use tt_api_server::build_app;
+use tt_api_server::{build_app, build_app_with_cache};
+use tt_cache::{create_redis_health, InMemoryStore, RedisHealthClient, RedisHealthOptions};
 use tt_config::Config;
 use tt_contract::{HealthStatus, HealthStatusRedis};
+use tt_qos::QosRegistry;
 
 /// Byte-exact `/api/healthz` payload captured from the TypeScript reference
 /// server's `routes/health.ts` shape (fixed uptime + timestamp).
@@ -58,9 +64,16 @@ async fn send(
     (status, headers, body)
 }
 
+/// The `redis` field is `disabled` only when no client exists: the config
+/// crate defaults to auto + `redis://localhost:6379`, which would create a
+/// real client (and report `down`) on `real-client` builds. The golden tests
+/// therefore pin `REDIS_MODE=disabled` to mean "no Redis client", matching
+/// the TS `getRedisHealthState` with an unconfigured `REDIS_URL`.
+const DISABLED: &[(&str, &str)] = &[("REDIS_MODE", "disabled")];
+
 #[tokio::test]
 async fn healthz_returns_ok_payload_with_no_store() {
-    let app = app(&[]);
+    let app = app(DISABLED);
     let (status, headers, body) = send(&app, Method::GET, "/api/healthz", None).await;
 
     assert_eq!(status, StatusCode::OK);
@@ -77,7 +90,7 @@ async fn healthz_returns_ok_payload_with_no_store() {
 
 #[tokio::test]
 async fn healthz_body_matches_ts_key_order() {
-    let app = app(&[]);
+    let app = app(DISABLED);
     let (_status, _headers, body) = send(&app, Method::GET, "/api/healthz", None).await;
 
     // Static fields come first, in the exact order of `routes/health.ts` /
@@ -133,6 +146,115 @@ async fn healthz_reports_service_version_from_env() {
     assert_eq!(status, StatusCode::OK);
     let value: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(value["version"], "1.2.3");
+}
+
+/// A `RedisHealthClient` with a test-driven event bus: `emit` invokes the
+/// controller's subscriptions synchronously, so `is_healthy()` settles before
+/// any request is sent. No timers are involved (`auto_recheck: false`), which
+/// keeps the healthz assertions deterministic.
+type ListenerMap = HashMap<&'static str, Vec<(usize, Arc<dyn Fn() + Send + Sync>)>>;
+
+struct FakeHealthClient {
+    listeners: Mutex<ListenerMap>,
+    next_id: AtomicUsize,
+}
+
+impl FakeHealthClient {
+    fn new() -> Arc<FakeHealthClient> {
+        Arc::new(FakeHealthClient {
+            listeners: Mutex::new(HashMap::new()),
+            next_id: AtomicUsize::new(0),
+        })
+    }
+
+    fn emit(&self, event: &'static str) {
+        let callbacks = self
+            .listeners
+            .lock()
+            .unwrap()
+            .get(event)
+            .cloned()
+            .unwrap_or_default();
+        for (_, callback) in callbacks {
+            callback();
+        }
+    }
+}
+
+impl RedisHealthClient for FakeHealthClient {
+    fn status(&self) -> &str {
+        "wait"
+    }
+
+    fn connect(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async move {
+            self.emit("ready");
+            Ok(())
+        })
+    }
+
+    fn on(&self, event: &'static str, callback: Box<dyn Fn() + Send + Sync>) -> usize {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        self.listeners
+            .lock()
+            .unwrap()
+            .entry(event)
+            .or_default()
+            .push((id, Arc::from(callback)));
+        id
+    }
+
+    fn off(&self, event: &'static str, id: usize) {
+        if let Some(callbacks) = self.listeners.lock().unwrap().get_mut(event) {
+            callbacks.retain(|(listener_id, _)| *listener_id != id);
+        }
+    }
+}
+
+/// An app wired with a `FakeHealthClient`-driven health controller (and a
+/// testkit `InMemoryStore`, as the route tests do).
+fn app_with_health(client: Arc<FakeHealthClient>, state: &'static str) -> Router {
+    let health = create_redis_health(
+        client.clone(),
+        RedisHealthOptions {
+            probe_interval_ms: 1,
+            auto_recheck: false,
+        },
+    );
+    client.emit(state);
+    let config = config(&[]);
+    let telemetry = Arc::new(tt_telemetry::init(&config));
+    let store: Option<Arc<dyn tt_cache::RedisStore>> = Some(InMemoryStore::new());
+    build_app_with_cache(
+        config,
+        telemetry,
+        Vec::new(),
+        Arc::new(QosRegistry::default()),
+        store,
+        Some(health),
+    )
+}
+
+#[tokio::test]
+async fn healthz_reports_redis_up_when_the_health_controller_is_healthy() {
+    let client = FakeHealthClient::new();
+    let app = app_with_health(client, "ready");
+
+    let (status, _headers, body) = send(&app, Method::GET, "/api/healthz", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["redis"], "up");
+}
+
+#[tokio::test]
+async fn healthz_reports_redis_down_when_the_health_controller_is_unhealthy() {
+    let client = FakeHealthClient::new();
+    let app = app_with_health(client, "end");
+
+    let (status, _headers, body) = send(&app, Method::GET, "/api/healthz", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["redis"], "down");
 }
 
 #[tokio::test]

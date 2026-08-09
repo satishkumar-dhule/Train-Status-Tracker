@@ -1,10 +1,12 @@
 //! Normalized, provider-agnostic types mirroring `train-status-mapper.ts`.
 
+use serde::{Deserialize, Serialize};
+
 /// A normalized train status station (the shared contract adapters produce).
 ///
 /// Every nullable field is `Option<T>` and serializes as explicit JSON `null`
 /// when absent, matching the TS mapper.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MappedStation {
     pub station_code: String,
     pub station_name: String,
@@ -21,8 +23,9 @@ pub struct MappedStation {
     pub day: i64,
 }
 
-/// Full train running status (the contract failover + routes consume).
-#[derive(Debug, Clone, PartialEq)]
+/// Full train running status (the contract failover + routes consume). Serde
+/// derives so a cache layer can store it (L2 Redis) without wire round-trips.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MappedStatus {
     pub train_number: String,
     pub train_name: String,

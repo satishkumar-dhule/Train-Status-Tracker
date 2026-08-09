@@ -19,13 +19,18 @@
 //!   adapting the Paytm error taxonomy into [`tt_provider_core::ProviderError`].
 //! - [`parse_paytm_response_body`] — the shared validation/extraction gate,
 //!   mirroring `parsePaytmResponseBody` in `lib/paytm-client.ts`.
+//! - [`fetch_paytm_train_status`] — the run-date probe fetch (port of
+//!   `fetchPaytmTrainStatus` in `lib/paytm-client.ts`), used by the
+//!   `GET /api/trains/runs` derivation.
 
 mod coerce;
+mod fetch;
 mod map;
 mod parse;
 mod provider;
 mod row;
 
+pub use fetch::fetch_paytm_train_status;
 pub use map::map_paytm_payload;
 pub use parse::{parse_paytm_response_body, PaytmError, PaytmTrainStatusPayload};
 pub use provider::{create_paytm_provider, PaytmProvider};

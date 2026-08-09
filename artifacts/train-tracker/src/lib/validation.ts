@@ -43,7 +43,7 @@ export function validateTrainQuery(
   }
 
   if (selected && matchesTrainNumber(selected.number, normalized)) {
-    return { status: "valid", message: "hint.valid" };
+    return { status: "valid", message: "Valid" };
   }
 
   const candidates = uniqueByNumber(trains);
@@ -52,14 +52,14 @@ export function validateTrainQuery(
     matchesTrainNumber(train.number, normalized),
   );
   if (numberMatches.length === 1) {
-    return { status: "valid", message: "hint.valid" };
+    return { status: "valid", message: "Valid" };
   }
 
   const nameMatches = candidates.filter((train) =>
     matchesTrainName(train.name, normalized),
   );
   if (nameMatches.length === 1) {
-    return { status: "valid", message: "hint.valid" };
+    return { status: "valid", message: "Valid" };
   }
 
   if (
@@ -69,14 +69,14 @@ export function validateTrainQuery(
         normalizeTrainNumber(train.name).includes(normalized),
     )
   ) {
-    return { status: "invalid", message: "hint.pickSuggestion" };
+    return { status: "invalid", message: "Select a train from the list to continue." };
   }
 
   if (isFullyNumeric(normalized) && !isValidTrainNumberFormat(normalized)) {
-    return { status: "invalid", message: "hint.invalidFormat" };
+    return { status: "invalid", message: "Train number must be 5 digits." };
   }
 
-  return { status: "invalid", message: "hint.noMatch" };
+  return { status: "invalid", message: "No train found. Try a different number or name." };
 }
 
 /**

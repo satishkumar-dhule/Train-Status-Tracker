@@ -1,43 +1,10 @@
-import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SpanStatusCode } from '@opentelemetry/api';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Route, Switch, Router as WouterRouter, Link } from 'wouter';
-import { I18nProvider } from './lib/i18n';
 import { RecentSearchesProvider } from './context/recent-searches';
 import Home from './pages/Home';
-import { getTrainStatusQueryParams, startBusinessSpan } from './lib/telemetry/queries';
+import Monitoring from './pages/Monitoring';
 
-/**
- * Emits one `train_status.lookup` span per completed status query (success or
- * error), tagged with the train number so backend traces and RUM join up.
- * Using a QueryCache keeps this global — every consumer of the generated
- * `useGetTrainStatus` hook is covered.
- */
-const queryClient = new QueryClient({
-  queryCache: new QueryCache({
-    onSuccess(_data, query) {
-      const params = getTrainStatusQueryParams(query.queryKey);
-      if (params.train_number === undefined) return;
-      const span = startBusinessSpan('train_status.lookup', {
-        'train.number': params.train_number,
-        'query.success': true,
-      });
-      span.end();
-    },
-    onError(error, query) {
-      const params = getTrainStatusQueryParams(query.queryKey);
-      if (params.train_number === undefined) return;
-      const span = startBusinessSpan('train_status.lookup', {
-        'train.number': params.train_number,
-        'query.success': false,
-      });
-      span.recordException(
-        error instanceof Error ? error : { message: String(error) },
-      );
-      span.setStatus({ code: SpanStatusCode.ERROR });
-      span.end();
-    },
-  }),
-});
+const queryClient = new QueryClient();
 
 function NotFound() {
   return (
@@ -45,12 +12,10 @@ function NotFound() {
       <p className="font-mono text-6xl font-bold leading-none text-primary">
         404
       </p>
-      <h1 className="font-sans text-lg font-semibold text-foreground">
-        Page not found
-      </h1>
+      <h1 className="text-lg font-semibold">Page not found</h1>
       <Link
         href="/"
-        className="inline-flex h-10 items-center rounded-full bg-brand px-4 font-sans text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-strong"
+        className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground"
       >
         Back home
       </Link>
@@ -62,6 +27,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/monitoring" component={Monitoring} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -70,13 +36,11 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <I18nProvider>
-        <RecentSearchesProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-            <Router />
-          </WouterRouter>
-        </RecentSearchesProvider>
-      </I18nProvider>
+      <RecentSearchesProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+          <Router />
+        </WouterRouter>
+      </RecentSearchesProvider>
     </QueryClientProvider>
   );
 }

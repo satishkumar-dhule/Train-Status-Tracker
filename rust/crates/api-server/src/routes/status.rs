@@ -1,20 +1,24 @@
 //! `GET /api/trains/status` — running-status lookup, ported from
-//! `routes/trains.ts` minus the caching layer (a later slice).
+//! `routes/trains.ts` including the caching layer.
 //!
 //! Query validation mirrors the reference exactly: missing and repeated params
 //! are rejected up front over the raw query (so arrays can never be silently
 //! stringified), then the shape regexes, then the real-calendar gate, and only
-//! then is the upstream called. Validation failures and upstream verdicts map
-//! to the same status codes and bodies as the TypeScript server, with full
-//! failover semantics (404 only when every consulted provider agrees
-//! not-found; 502 when all upstreams fail).
+//! then is the cache consulted. The L1 `TtlCache` (single-flight) producer
+//! reads the L2 `RedisTtlCache` first, then the upstream; positives and
+//! not-founds are written back (L2 negative markers carry their own TTL),
+//! failures travel through [`CacheError`] uncached so the next call retries.
+//! Validation failures and upstream verdicts map to the same status codes and
+//! bodies as the TypeScript server (404 only when every consulted provider
+//! agrees not-found; 502 when all upstreams fail).
 
 use axum::extract::{RawQuery, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
 
+use tt_cache::{CacheError, CacheResult};
 use tt_contract::{is_valid_departure_date, is_valid_train_number, ErrorResponse};
-use tt_mapper::KnownTrain;
+use tt_mapper::{KnownTrain, MappedStatus};
 use tt_orchestrator::{fetch_status_with_failover, FailoverOptions};
 use tt_provider_core::ProviderError;
 use tt_trains_data::{find_train_by_number, is_valid_api_date, TRAINS};
@@ -31,6 +35,22 @@ const INVALID_CALENDAR_DATE_MESSAGE: &str =
 const NOT_FOUND_MESSAGE: &str = "Train not found or no data available";
 const UPSTREAM_MESSAGE: &str = "Could not reach train data provider";
 const INTERNAL_ERROR_MESSAGE: &str = "Internal server error";
+
+/// The error-carried classification of a failed cache lookup. The L1 caches
+/// values only; failures travel through [`CacheError::message`] so
+/// single-flight waiters all see the same verdict.
+const UPSTREAM_CACHE_ERROR: &str = "upstream-provider-error";
+const PROGRAM_CACHE_ERROR: &str = "internal-provider-error";
+
+/// What the cache holds for a `train_number:departure_date` lookup.
+#[derive(Debug, Clone)]
+pub enum CachedStatus {
+    /// A mapped, positive status (shared with L2; serde_json round-trips).
+    /// Boxed so the enum's variants stay small — the L1 stores it as-is.
+    Value(Box<MappedStatus>),
+    /// A cached "no data" verdict (L2's negative marker; L1 serves it too).
+    NotFound,
+}
 
 pub(crate) async fn train_status(
     State(state): State<AppState>,
@@ -89,29 +109,76 @@ pub(crate) async fn train_status(
         name: train.name.clone(),
     });
 
-    let options = FailoverOptions {
-        known_train,
-        qos: Some(state.qos.clone()),
-        telemetry: Some(state.telemetry.clone()),
-        ..FailoverOptions::default()
-    };
+    let cache_key = format!("{train_number}:{departure_date}");
+    let producer_key = cache_key.clone();
+    let cache = state.status_l1.clone();
+    let l2 = state.status_l2.clone();
+    let providers = state.status_providers.clone();
+    let qos = state.qos.clone();
+    let telemetry = state.telemetry.clone();
 
-    match fetch_status_with_failover(
-        &state.status_providers,
-        &train_number,
-        &departure_date,
-        &options,
-    )
-    .await
-    {
-        Ok(mapped) => (StatusCode::OK, Json(tt_mapper::to_wire_status(&mapped))).into_response(),
-        Err(ProviderError::NotFound { .. }) => {
+    let outcome = cache
+        .get_or_set(&cache_key, move || {
+            let providers = providers.clone();
+            let l2 = l2.clone();
+            async move {
+                if let Some(l2) = l2.as_ref() {
+                    match l2.get(&producer_key).await {
+                        CacheResult::Hit(mapped) => {
+                            return Ok(CachedStatus::Value(Box::new(mapped)))
+                        }
+                        CacheResult::Negative => return Ok(CachedStatus::NotFound),
+                        CacheResult::Miss => {}
+                    }
+                }
+                let options = FailoverOptions {
+                    known_train,
+                    qos: Some(qos),
+                    telemetry: Some(telemetry),
+                    ..FailoverOptions::default()
+                };
+                match fetch_status_with_failover(
+                    &providers,
+                    &train_number,
+                    &departure_date,
+                    &options,
+                )
+                .await
+                {
+                    Ok(mapped) => {
+                        if let Some(l2) = l2.as_ref() {
+                            l2.set(&producer_key, &mapped, None).await.ok();
+                        }
+                        Ok(CachedStatus::Value(Box::new(mapped)))
+                    }
+                    Err(ProviderError::NotFound { .. }) => {
+                        if let Some(l2) = l2.as_ref() {
+                            l2.set_negative(&producer_key, None).await;
+                        }
+                        Ok(CachedStatus::NotFound)
+                    }
+                    Err(ProviderError::Upstream { .. }) => Err(CacheError {
+                        message: UPSTREAM_CACHE_ERROR.to_string(),
+                    }),
+                    Err(ProviderError::Program(_)) => Err(CacheError {
+                        message: PROGRAM_CACHE_ERROR.to_string(),
+                    }),
+                }
+            }
+        })
+        .await;
+
+    match outcome {
+        Ok(CachedStatus::Value(mapped)) => {
+            (StatusCode::OK, Json(tt_mapper::to_wire_status(&mapped))).into_response()
+        }
+        Ok(CachedStatus::NotFound) => {
             json_error(StatusCode::NOT_FOUND, NOT_FOUND_MESSAGE.to_string())
         }
-        Err(ProviderError::Upstream { .. }) => {
+        Err(err) if err.message == UPSTREAM_CACHE_ERROR => {
             json_error(StatusCode::BAD_GATEWAY, UPSTREAM_MESSAGE.to_string())
         }
-        Err(ProviderError::Program(_)) => json_error(
+        Err(_) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             INTERNAL_ERROR_MESSAGE.to_string(),
         ),

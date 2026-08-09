@@ -1,31 +1,43 @@
 //! Rail Saarthi — `tt-cache` crate.
 //!
-//! Seam: `Cache::get/put(key, ttl)` hiding L1 TTL single-flight + L2 Redis + gzip.
-//! Ports of `lib/ttl-cache.ts`, `lib/redis-cache.ts`, and `lib/redis-client.ts`.
+//! Cache of the train-status route, ported 1:1 from the TypeScript server:
 //!
-//! Deep module: the public surface below is the whole contract — two caches
-//! and the store seam behind the L2 layer. Implementation lives in private
-//! submodules, tested through this surface (and the `Store` seam) only.
+//! - `src/store.rs` — ports `lib/redis-client.ts`: the [`RedisStore`] trait,
+//!   [`parse_redis_config`], the health controller (port of
+//!   `createRedisHealth`), and the real connection behind the `real-client`
+//!   feature.
+//! - `src/l2.rs` — ports `lib/redis-cache.ts`: the fail-open, TTL-jittered,
+//!   gzip-capable [`RedisTtlCache`] layered on any [`RedisStore`].
+//! - `src/l1.rs` — ports `lib/ttl-cache.ts`: the in-memory single-flight
+//!   [`TtlCache`] with injectable clock and bounded capacity.
 //!
-//! Public surface:
+//! Deep module: the public surface below is the whole contract. Implementation
+//! lives in private submodules, tested through this surface (and the
+//! [`RedisStore`] / [`RedisHealthClient`] fakes) only.
 //!
-//! - [`TtlCache`] / [`create_ttl_cache`] — the L1 in-memory TTL cache with
-//!   single-flight `get_or_set` (port of `createTtlCache`).
-//! - [`RedisTtlCache`] / [`create_redis_ttl_cache`] — the L2 fail-open Redis
-//!   TTL cache with gzip and jitter (port of `createRedisTtlCache`).
-//! - [`Store`] — the minimal async key-value seam (port of the `RedisStore`
-//!   interface in `redis-client.ts`), plus [`parse_redis_config`] /
-//!   [`RedisConfig`] for the disabled/scheme/mode/env rules of
-//!   `parseRedisConfig`.
+//! # Layering
 //!
-//! The production store (behind the `real-client` feature) wraps the `redis`
-//! crate with a health controller mirroring `createRedisHealth` and
-//! `createRedisStore`.
+//! The route production is a `TtlCache` (L1) whose producer consults the
+//! `RedisTtlCache` (L2) and, on upstream success, writes back a positive value
+//! or a "not found" marker (`setNegative`). Redis failures are fail-open: a
+//! `get` falls through to a miss and `set`/`setNegative` are no-ops, exactly
+//! like the TypeScript server.
 
 mod l1;
 mod l2;
 mod store;
 
-pub use l1::{create_ttl_cache, TtlCache};
-pub use l2::{create_redis_ttl_cache, CacheResult, RedisCacheOptions, RedisTtlCache};
-pub use store::{parse_redis_config, RedisConfig, RedisMode, Store};
+#[cfg(feature = "testkit")]
+mod testkit;
+
+pub use l1::{CacheError, TtlCache, TtlCacheConfig};
+pub use l2::{
+    create_redis_ttl_cache, CacheResult, RedisCacheOptions, RedisTtlCache, NOT_FOUND_MARKER,
+};
+pub use store::{
+    create_redis_client, create_redis_health, create_redis_store, parse_redis_config, RedisClient,
+    RedisConfig, RedisHealth, RedisHealthClient, RedisHealthOptions, RedisMode, RedisStore,
+    StoreError,
+};
+#[cfg(feature = "testkit")]
+pub use testkit::InMemoryStore;

@@ -70,6 +70,13 @@ impl LocalDate {
     }
 }
 
+/// Day-of-week index for a civil date: 0 = Sunday .. 6 = Saturday, matching
+/// `Date.prototype.getDay()` on a date whose local timezone is UTC.
+pub fn weekday_of(date: LocalDate) -> usize {
+    // 1970-01-01 was a Thursday (4 when 0 = Sunday).
+    ((days_from_civil(date.year, date.month, date.day) + 4).rem_euclid(7)) as usize
+}
+
 fn is_leap_year(year: i32) -> bool {
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
@@ -524,6 +531,19 @@ mod tests {
             // Walking a whole year forward and back lands on the same date.
             assert_eq!(date.add_days(366).add_days(-366), date);
         }
+    }
+
+    #[test]
+    fn weekday_of_matches_date_getday() {
+        // 1970-01-01 was a Thursday (4 when 0 = Sunday).
+        assert_eq!(weekday_of(LocalDate::new(1970, 1, 1).unwrap()), 4);
+        // Known anchor: 2026-08-05 is a Wednesday.
+        assert_eq!(weekday_of(LocalDate::new(2026, 8, 5).unwrap()), 3);
+        assert_eq!(weekday_of(LocalDate::new(2026, 8, 9).unwrap()), 0);
+        assert_eq!(weekday_of(LocalDate::new(2026, 8, 10).unwrap()), 1);
+        // A full week returns to the same weekday.
+        let start = LocalDate::new(2026, 1, 1).unwrap();
+        assert_eq!(weekday_of(start.add_days(7)), weekday_of(start));
     }
 
     #[test]

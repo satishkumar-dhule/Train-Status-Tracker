@@ -8,7 +8,6 @@ import {
   STATUS_CACHE_GC_BUFFER_MS,
   getStatusCacheTtlMs,
 } from "../lib/status-cache";
-import { getAutoRefreshIntervalMs } from "../lib/auto-refresh";
 import {
   isProviderUnreachableError,
   isTrainNotFoundError,
@@ -21,8 +20,8 @@ import {
  */
 const STATUS_CACHE_TTL_MS = getStatusCacheTtlMs();
 
-/** Polling cadence when auto-refresh is ON (default 30s, see lib/auto-refresh). */
-const AUTO_REFRESH_INTERVAL_MS = getAutoRefreshIntervalMs();
+/** Why a status query failed, when it failed. */
+export type TrainStatusErrorType = "not-found" | "provider" | "network";
 
 export interface TrainStatusResult {
   data: TrainStatusResponse | undefined;
@@ -32,16 +31,13 @@ export interface TrainStatusResult {
   isFetching: boolean;
   /**
    * True when the shown data is a placeholder (the previous query's data)
-   * while a new query — e.g. a different date — is still loading. Placeholder
-   * data is NOT the selected date's truth and must not be presented as live.
+   * while a new query is still loading. Placeholder data is NOT the selected
+   * date's truth and must not be presented as live.
    */
   isPlaceholderData: boolean;
   isError: boolean;
-  isNotFound: boolean;
-  isProviderError: boolean;
-  isNetworkError: boolean;
-  /** i18n key for the error, or null when there is no error. */
-  messageKey: string | null;
+  /** Why the query failed, or null when there is no error. */
+  errorType: TrainStatusErrorType | null;
   /** Forces a fresh fetch of the current train/date, bypassing the cache. */
   refetch: () => Promise<unknown>;
 }
@@ -49,7 +45,6 @@ export interface TrainStatusResult {
 export function useTrainStatus(
   params: { train_number: string; departure_date: string } | null,
   enabled?: boolean,
-  autoRefresh?: boolean,
 ): TrainStatusResult {
   const query = useGetTrainStatus(
     params ?? { train_number: "", departure_date: "" },
@@ -59,7 +54,6 @@ export function useTrainStatus(
         queryKey: params ? getGetTrainStatusQueryKey(params) : [],
         retry: false,
         refetchOnWindowFocus: false,
-        refetchInterval: autoRefresh ? AUTO_REFRESH_INTERVAL_MS : undefined,
         staleTime: STATUS_CACHE_TTL_MS,
         gcTime: STATUS_CACHE_TTL_MS + STATUS_CACHE_GC_BUFFER_MS,
         placeholderData: keepPreviousData,
@@ -72,21 +66,14 @@ export function useTrainStatus(
 
   const isLoading = data === undefined && isFetching;
 
-  let isNotFound = false;
-  let isProviderError = false;
-  let isNetworkError = false;
-  let messageKey: string | null = null;
-
+  let errorType: TrainStatusErrorType | null = null;
   if (isError) {
     if (isTrainNotFoundError(error)) {
-      isNotFound = true;
-      messageKey = "error.trainNotFound";
+      errorType = "not-found";
     } else if (isProviderUnreachableError(error)) {
-      isProviderError = true;
-      messageKey = "error.providerUnreachable";
+      errorType = "provider";
     } else {
-      isNetworkError = true;
-      messageKey = "error.fallback";
+      errorType = "network";
     }
   }
 
@@ -96,10 +83,7 @@ export function useTrainStatus(
     isFetching,
     isPlaceholderData,
     isError,
-    isNotFound,
-    isProviderError,
-    isNetworkError,
-    messageKey,
+    errorType,
     refetch,
   };
 }

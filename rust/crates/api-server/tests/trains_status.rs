@@ -506,7 +506,13 @@ async fn skips_a_provider_in_qos_cooldown_at_the_route_level() {
     // Threshold 1: the failing provider enters cooldown after one failure.
     let app = app_with_providers(vec![failing_provider, ok_provider], 1);
 
-    let (status, _body) = send(&app, &status_uri()).await;
+    // Each request uses a distinct departure date so the status-route cache
+    // cannot serve the next request from L1: cooldown itself must be observed.
+    let uri_for = |date: &str| {
+        format!("/api/trains/status?train_number={TRAIN_NUMBER}&departure_date={date}")
+    };
+
+    let (status, _body) = send(&app, &uri_for(DEPARTURE_DATE)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         failing_mock.requests().len(),
@@ -514,7 +520,7 @@ async fn skips_a_provider_in_qos_cooldown_at_the_route_level() {
         "first request consults it"
     );
 
-    let (status, _body) = send(&app, &status_uri()).await;
+    let (status, _body) = send(&app, &uri_for("20260803")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         failing_mock.requests().len(),
@@ -522,7 +528,7 @@ async fn skips_a_provider_in_qos_cooldown_at_the_route_level() {
         "second request must skip the provider in cooldown"
     );
 
-    let (status, _body) = send(&app, &status_uri()).await;
+    let (status, _body) = send(&app, &uri_for("20260804")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(failing_mock.requests().len(), 1);
 }

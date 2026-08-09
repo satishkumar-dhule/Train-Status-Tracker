@@ -1,7 +1,3 @@
-import { initTelemetry } from './lib/telemetry';
-
-await initTelemetry();
-
 import { createRoot } from 'react-dom/client';
 
 import App from './App';

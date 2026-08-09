@@ -7,8 +7,10 @@
 //! a parsed struct must re-serialize those fields as `null` too.
 
 use tt_contract::{
-    ErrorResponse, HealthStatus, HealthStatusRedis, StationStatus, TrainCatalogResponse,
-    TrainEntry, TrainRunsResponse, TrainSearchResponse, TrainStatusResponse,
+    AtStationResponse, BetweenStationsResponse, ErrorResponse, HealthStatus, HealthStatusRedis,
+    PnrStatusResponse, ScheduleStation, StationStatus, StationTrain, TrainAlert,
+    TrainAlertsResponse, TrainCatalogResponse, TrainEntry, TrainRunsResponse,
+    TrainScheduleResponse, TrainSearchResponse, TrainStatusResponse,
 };
 
 /// Parse a compact JSON literal into `T`, re-serialize it, and assert the
@@ -417,5 +419,162 @@ mod train_status_response {
         );
         let out = round_trip_json::<TrainStatusResponse>(PAYLOAD);
         assert_eq!(out, EXPECTED);
+    }
+}
+
+mod train_schedule_response {
+    use super::*;
+
+    // Compact canonical fixture with explicit nulls, in declaration order.
+    const FIXTURE: &str = concat!(
+        r#"{"train_number":"22943","train_name":null,"departure_date":"20260802","#,
+        r#""source_station_code":"ADI","source_station_name":"Ahmedabad Jn","#,
+        r#""destination_station_code":"CNB","destination_station_name":"Kanpur Central","#,
+        r#""stations":[{"station_code":"ADI","station_name":"Ahmedabad Jn","#,
+        r#""arrival_time":null,"departure_time":"23:00","halt_minutes":20,"#,
+        r#""distance_from_source":0,"platform":null,"day":1},"#,
+        r#"{"station_code":"CNB","station_name":"Kanpur Central","#,
+        r#""arrival_time":"10:50","departure_time":null,"halt_minutes":null,"#,
+        r#""distance_from_source":1256,"platform":"2","day":2}]}"#,
+    );
+
+    #[test]
+    fn round_trips_byte_identical() {
+        assert_eq!(round_trip_json::<TrainScheduleResponse>(FIXTURE), FIXTURE);
+    }
+
+    #[test]
+    fn explicit_nulls_deserialize_to_none() {
+        let s: TrainScheduleResponse = serde_json::from_str(FIXTURE).unwrap();
+        assert_eq!(s.train_name, None);
+        assert_eq!(s.stations[0].arrival_time, None);
+        assert_eq!(s.stations[1].halt_minutes, None);
+    }
+
+    #[test]
+    fn schedule_station_and_required_fields_are_mandatory() {
+        assert!(serde_json::from_str::<ScheduleStation>(r#"{}"#).is_err());
+        assert!(serde_json::from_str::<TrainScheduleResponse>(r#"{}"#).is_err());
+    }
+}
+
+mod between_stations_response {
+    use super::*;
+
+    const FIXTURE: &str = concat!(
+        r#"{"from_station_code":"ADI","to_station_code":"NDLS","departure_date":"20260802","#,
+        r#""trains":[{"train_number":"22943","train_name":"Indore Intercity SF Express","#,
+        r#""from_station_code":"ADI","to_station_code":"NDLS","#,
+        r#""departure_time":"23:00","arrival_time":"08:05","day":1,"#,
+        r#""journey_time_minutes":545,"days_run":["Mon","Wed","Sat"]}]}"#,
+    );
+
+    #[test]
+    fn round_trips_byte_identical() {
+        assert_eq!(round_trip_json::<BetweenStationsResponse>(FIXTURE), FIXTURE);
+    }
+
+    #[test]
+    fn empty_trains_round_trip() {
+        let f = r#"{"from_station_code":"ADI","to_station_code":"NDLS","departure_date":"20260802","trains":[]}"#;
+        assert_eq!(round_trip_json::<BetweenStationsResponse>(f), f);
+    }
+
+    #[test]
+    fn required_fields_are_mandatory() {
+        assert!(serde_json::from_str::<BetweenStationsResponse>(r#"{}"#).is_err());
+    }
+}
+
+mod at_station_response {
+    use super::*;
+
+    const FIXTURE: &str = concat!(
+        r#"{"station_code":"ADI","station_name":"Ahmedabad Jn","date":"20260802","#,
+        r#""trains":[{"train_number":"22943","train_name":"Indore Intercity SF Express","#,
+        r#""direction":"down","scheduled_arrival":null,"scheduled_departure":"23:00","#,
+        r#""day":1,"from_station_code":"INDB","to_station_code":"NDLS"}]}"#,
+    );
+
+    #[test]
+    fn round_trips_byte_identical() {
+        assert_eq!(round_trip_json::<AtStationResponse>(FIXTURE), FIXTURE);
+    }
+
+    #[test]
+    fn station_train_required_fields_are_mandatory() {
+        assert!(serde_json::from_str::<StationTrain>(r#"{}"#).is_err());
+        assert!(serde_json::from_str::<AtStationResponse>(r#"{}"#).is_err());
+    }
+}
+
+mod train_alerts_response {
+    use super::*;
+
+    const FIXTURE: &str = concat!(
+        r#"{"train_number":"22943","alerts":["#,
+        r#"{"kind":"reschedule","message":"Rescheduled by 2h","from_station_code":"ADI","#,
+        r#""to_station_code":"NDLS","date":"20260805","created_at":null},"#,
+        r#"{"kind":"delay","message":"Running late","from_station_code":null,"#,
+        r#""to_station_code":null,"date":null,"created_at":null}]}"#,
+    );
+
+    #[test]
+    fn round_trips_byte_identical() {
+        assert_eq!(round_trip_json::<TrainAlertsResponse>(FIXTURE), FIXTURE);
+    }
+
+    #[test]
+    fn empty_alerts_round_trip() {
+        let f = r#"{"train_number":"22943","alerts":[]}"#;
+        assert_eq!(round_trip_json::<TrainAlertsResponse>(f), f);
+        let t: TrainAlert = serde_json::from_str(
+            r#"{"kind":"delay","message":"x","from_station_code":null,"to_station_code":null,"date":null,"created_at":null}"#,
+        )
+        .unwrap();
+        assert_eq!(t.kind, "delay");
+    }
+
+    #[test]
+    fn required_fields_are_mandatory() {
+        assert!(serde_json::from_str::<TrainAlertsResponse>(r#"{}"#).is_err());
+        assert!(serde_json::from_str::<TrainAlert>(r#"{}"#).is_err());
+    }
+}
+
+mod pnr_status_response {
+    use super::*;
+
+    const FIXTURE: &str = concat!(
+        r#"{"pnr":"2315455889","train_number":"22943","train_name":"Indore Intercity SF Express","#,
+        r#""from_station_code":"INDB","to_station_code":"NDLS","boarding_station_code":"INDB","#,
+        r#""booking_date":"20260720","journey_date":"20260802","travel_class":"SL","#,
+        r#""chart_prepared":true,"#,
+        r#""passengers":[{"serial":1,"current_status":"CNF","berth":"B1 42","coach":"B1"}],"#,
+        r#""last_updated":"2026-08-02T08:20:00+05:30"}"#,
+    );
+
+    #[test]
+    fn round_trips_byte_identical() {
+        assert_eq!(round_trip_json::<PnrStatusResponse>(FIXTURE), FIXTURE);
+    }
+
+    #[test]
+    fn chart_not_prepared_and_null_fields_round_trip() {
+        let f = concat!(
+            r#"{"pnr":"2315455889","train_number":null,"train_name":null,"#,
+            r#""from_station_code":null,"to_station_code":null,"boarding_station_code":null,"#,
+            r#""booking_date":null,"journey_date":null,"travel_class":null,"#,
+            r#""chart_prepared":false,"passengers":[],"last_updated":null}"#,
+        );
+        let p: PnrStatusResponse = serde_json::from_str(f).unwrap();
+        assert!(!p.chart_prepared);
+        assert!(p.passengers.is_empty());
+        assert_eq!(round_trip_json::<PnrStatusResponse>(f), f);
+    }
+
+    #[test]
+    fn required_fields_are_mandatory() {
+        assert!(serde_json::from_str::<PnrStatusResponse>(r#"{}"#).is_err());
     }
 }

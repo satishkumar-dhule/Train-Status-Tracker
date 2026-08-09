@@ -22,7 +22,25 @@ use tt_provider_core::{ProviderError, ProviderFetchOptions, TrainStatusProvider}
 use tt_provider_http::{fetch_provider_json, HttpTransport, Request};
 
 const PAYTM_BASE: &str = "https://travel.paytm.com/api/trains/v1/train/status";
-const PAYTM_USER_AGENT: &str = "Mozilla/5.0 (compatible; TrainTracker/1.0) AppleWebKit/537.36";
+pub(crate) const PAYTM_USER_AGENT: &str =
+    "Mozilla/5.0 (compatible; TrainTracker/1.0) AppleWebKit/537.36";
+
+/// The status endpoint URL for `(train_number, departure_date)`, mirroring
+/// `new URL(PAYTM_BASE)` + the `URLSearchParams.set(...)` calls in
+/// `fetchPaytmTrainStatus` (percent-encoding, spaces become `+`). Shared by the
+/// provider adapter and the run-date probe fetch so both hit the same endpoint.
+pub(crate) fn paytm_status_url(train_number: &str, departure_date: &str) -> String {
+    let mut url = url::Url::parse(PAYTM_BASE).expect("static Paytm base URL is valid");
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("train_number", train_number);
+        pairs.append_pair("departure_date", departure_date);
+        pairs.append_pair("isH5", "true");
+        pairs.append_pair("client", "web");
+        pairs.append_pair("deviceIdentifier", "Mozilla Firefox-150.0.0.0");
+    }
+    url.to_string()
+}
 
 /// The Paytm train-status adapter.
 pub struct PaytmProvider {
@@ -33,20 +51,6 @@ impl PaytmProvider {
     /// Create an adapter over the injected transport seam.
     pub fn new(transport: Arc<dyn HttpTransport>) -> Self {
         Self { transport }
-    }
-
-    fn build_url(&self, train_number: &str, departure_date: &str) -> String {
-        let mut url = url::Url::parse(PAYTM_BASE).expect("static Paytm base URL is valid");
-        {
-            // `URLSearchParams.set(...)` — percent-encoding (spaces become `+`).
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("train_number", train_number);
-            pairs.append_pair("departure_date", departure_date);
-            pairs.append_pair("isH5", "true");
-            pairs.append_pair("client", "web");
-            pairs.append_pair("deviceIdentifier", "Mozilla Firefox-150.0.0.0");
-        }
-        url.to_string()
     }
 }
 
@@ -72,7 +76,7 @@ impl TrainStatusProvider for PaytmProvider {
         options: &ProviderFetchOptions,
         known_train: Option<&KnownTrain>,
     ) -> Result<MappedStatus, ProviderError> {
-        let mut request = Request::get(self.build_url(train_number, departure_date))
+        let mut request = Request::get(paytm_status_url(train_number, departure_date))
             .header("User-Agent", PAYTM_USER_AGENT)
             .header("Accept", "application/json");
         if let Some(signal) = &options.abort {

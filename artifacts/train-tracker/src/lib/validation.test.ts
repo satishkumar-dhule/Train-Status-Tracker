@@ -151,14 +151,14 @@ describe("validateTrainQuery", () => {
   it("is valid for an exact number match", () => {
     expect(validateTrainQuery("22943", null, TRAINS)).toMatchObject({
       status: "valid",
-      message: "hint.valid",
+      message: "Valid",
     });
   });
 
   it("is valid for a unique full-name match", () => {
     expect(validateTrainQuery("SEALDAH RAJDHANI EXPRESS", null, TRAINS)).toMatchObject({
       status: "valid",
-      message: "hint.valid",
+      message: "Valid",
     });
   });
 
@@ -172,7 +172,7 @@ describe("validateTrainQuery", () => {
     const selected = suggestion("22943", "Indore Intercity SF Express");
     expect(validateTrainQuery("22943", selected, TRAINS)).toMatchObject({
       status: "valid",
-      message: "hint.valid",
+      message: "Valid",
     });
   });
 
@@ -192,46 +192,46 @@ describe("validateTrainQuery", () => {
   it("is invalid with partial results (pickSuggestion)", () => {
     expect(validateTrainQuery("229", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.pickSuggestion",
+      message: "Select a train from the list to continue.",
     });
     expect(validateTrainQuery("RAJ", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.pickSuggestion",
+      message: "Select a train from the list to continue.",
     });
   });
 
   it("prefers pickSuggestion over invalidFormat when results exist", () => {
     expect(validateTrainQuery("2294", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.pickSuggestion",
+      message: "Select a train from the list to continue.",
     });
   });
 
   it("is invalid (invalidFormat) for a short numeric input with no matches", () => {
     expect(validateTrainQuery("77", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.invalidFormat",
+      message: "Train number must be 5 digits.",
     });
   });
 
   it("is invalid (noMatch) for gibberish", () => {
     expect(validateTrainQuery("ZZZZ", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.noMatch",
+      message: "No train found. Try a different number or name.",
     });
   });
 
   it("is invalid (noMatch) for a well-formed number not in the dataset", () => {
     expect(validateTrainQuery("99999", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.noMatch",
+      message: "No train found. Try a different number or name.",
     });
   });
 
   it("is invalid (pickSuggestion) for an ambiguous shared name", () => {
     expect(validateTrainQuery("GOLDEN TEMPLE MAIL", null, TRAINS)).toMatchObject({
       status: "invalid",
-      message: "hint.pickSuggestion",
+      message: "Select a train from the list to continue.",
     });
   });
 });

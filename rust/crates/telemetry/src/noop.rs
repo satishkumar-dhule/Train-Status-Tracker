@@ -79,9 +79,44 @@ impl ProviderMetrics {
     pub fn record_failover(&self, _outcome: &str, _attempts: u64) {}
 }
 
+/// Rate-limit decision recorder. Port of the counter emitted by
+/// `createRateLimitMiddleware` in `lib/rate-limit.ts`; a no-op when telemetry
+/// is disabled.
+#[derive(Clone)]
+pub struct RateLimitMetrics {}
+
+impl RateLimitMetrics {
+    pub(crate) fn noop() -> RateLimitMetrics {
+        RateLimitMetrics {}
+    }
+
+    /// Increments `app.rate_limit.decisions` with `result` (and the optional
+    /// `route` label). The client key is deliberately NOT an attribute — it is
+    /// high-cardinality user input. No-op when disabled.
+    pub fn record_decision(&self, _result: &str, _route: Option<&str>) {}
+}
+
+/// Train run-date lookup recorder. Port of the `trains.runs.requests` counter
+/// created by `getRunsRequestsCounter` in `lib/routes/train-runs.ts`; a no-op
+/// when telemetry is disabled.
+#[derive(Clone)]
+pub struct RunsRequestsMetrics {}
+
+impl RunsRequestsMetrics {
+    pub(crate) fn noop() -> RunsRequestsMetrics {
+        RunsRequestsMetrics {}
+    }
+
+    /// Increments `trains.runs.requests` with `result` (`ok` /
+    /// `validation_error` / `upstream_error` / `internal_error`). No-op when
+    /// disabled.
+    pub fn record_result(&self, _result: &str) {}
+}
+
 /// Cache and Redis recorder. Port of the counters/histogram/gauge emitted by
 /// `lib/ttl-cache.ts` and `lib/redis-cache.ts`; a no-op when telemetry is
 /// disabled.
+#[derive(Clone)]
 pub struct CacheMetrics {}
 
 impl CacheMetrics {

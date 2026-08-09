@@ -4,7 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tt_config::{Config, OtelConfig};
 
-use crate::{CacheMetrics, HttpMetrics, Meter, ProviderMetrics, Tracer};
+use crate::{
+    CacheMetrics, HttpMetrics, Meter, ProviderMetrics, RateLimitMetrics, RunsRequestsMetrics,
+    Tracer,
+};
 
 /// Set once real SDK providers are up, so [`is_enabled`] reports true even when
 /// the process environment changed after startup (port of `isTelemetryEnabled`
@@ -19,6 +22,8 @@ pub struct Telemetry {
     http_metrics: HttpMetrics,
     provider_metrics: ProviderMetrics,
     cache_metrics: CacheMetrics,
+    rate_limit_metrics: RateLimitMetrics,
+    runs_requests_metrics: RunsRequestsMetrics,
     #[cfg(feature = "otlp")]
     providers: Option<crate::otlp::Providers>,
 }
@@ -56,6 +61,16 @@ impl Telemetry {
         &self.cache_metrics
     }
 
+    /// The rate-limit decision recorder; inert when telemetry is disabled.
+    pub fn rate_limit_metrics(&self) -> &RateLimitMetrics {
+        &self.rate_limit_metrics
+    }
+
+    /// The train run-date lookup recorder; inert when telemetry is disabled.
+    pub fn runs_requests_metrics(&self) -> &RunsRequestsMetrics {
+        &self.runs_requests_metrics
+    }
+
     /// Flushes and shuts down the SDK providers, restoring the inert state.
     /// Safe to call once at shutdown; exporter failures never throw.
     pub fn shutdown(self) {
@@ -74,6 +89,8 @@ impl Telemetry {
             http_metrics: HttpMetrics::noop(),
             provider_metrics: ProviderMetrics::noop(),
             cache_metrics: CacheMetrics::noop(),
+            rate_limit_metrics: RateLimitMetrics::noop(),
+            runs_requests_metrics: RunsRequestsMetrics::noop(),
             #[cfg(feature = "otlp")]
             providers: None,
         }
@@ -118,6 +135,8 @@ pub fn init(config: &Config) -> Telemetry {
                     http_metrics: HttpMetrics::from_meter(meter_handle),
                     provider_metrics: ProviderMetrics::from_meter(providers.meter()),
                     cache_metrics: CacheMetrics::from_meter(providers.meter()),
+                    rate_limit_metrics: RateLimitMetrics::from_meter(providers.meter()),
+                    runs_requests_metrics: RunsRequestsMetrics::from_meter(providers.meter()),
                     providers: Some(providers),
                 }
             }
@@ -280,6 +299,8 @@ mod tests {
         telemetry
             .http_metrics()
             .record(502, 0.5, "GET", "/api/trains/status");
+
+        telemetry.runs_requests_metrics().record_result("ok");
 
         telemetry.shutdown();
     }
