@@ -1,7 +1,9 @@
 //! Rail Saarthi — `tt-orchestrator` crate.
 //!
 //! Seam: `fetch_status_with_failover` — try enabled providers in order,
-//! record QoS, classify.
+//! record QoS, classify — and `build_status_providers` — assemble the
+//! concrete provider list from configured names (the Rust counterpart of
+//! `lib/providers/registry.ts`).
 //!
 //! Port of `lib/providers/orchestrator.ts`, with the ZTA classification
 //! policy preserved 1:1:
@@ -14,9 +16,11 @@
 //!   rather than masked by failover.
 //!
 //! Deep module: the whole public surface is [`fetch_status_with_failover`]
-//! and [`FailoverOptions`]; the timeout walk and telemetry recording live in
-//! private submodules.
+//! with [`FailoverOptions`], plus [`build_status_providers`]; the timeout walk
+//! and telemetry recording live in private submodules.
 
 mod failover;
+mod registry;
 
 pub use failover::{fetch_status_with_failover, FailoverOptions};
+pub use registry::build_status_providers;

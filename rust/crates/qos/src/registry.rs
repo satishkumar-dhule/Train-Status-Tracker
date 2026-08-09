@@ -222,8 +222,8 @@ fn percentile(sorted: &[f64], p: f64) -> Option<f64> {
     if sorted.is_empty() {
         return None;
     }
-    let index = (sorted.len() - 1)
-        .min(((p * sorted.len() as f64).ceil() as usize).saturating_sub(1));
+    let index =
+        (sorted.len() - 1).min(((p * sorted.len() as f64).ceil() as usize).saturating_sub(1));
     sorted.get(index).copied()
 }
 

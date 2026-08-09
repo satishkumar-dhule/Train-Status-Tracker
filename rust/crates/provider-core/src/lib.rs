@@ -13,11 +13,18 @@
 //! consumers reason about failure through [`ProviderError`] without importing
 //! provider-specific types, exactly like the TS `errors.ts`.
 
+mod parse;
+
 use std::error::Error;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tt_mapper::MappedStatus;
+
+pub use parse::{
+    as_boolean, as_nullable_string, as_string, is_record, iso_time_of_day, js_number_from_string,
+    js_string, to_finite_number, to_nullable_int, to_positive_int,
+};
 
 /// Abort token carried on provider requests (mirrors `AbortSignal` in TS).
 ///

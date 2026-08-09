@@ -1,7 +1,8 @@
 //! The `PaytmProvider` adapter, ported 1:1 from `PaytmProvider` in
 //! `lib/providers/paytm.ts` — the shared transport (`fetchProviderStatus` in
 //! `providers/http.ts`) is replaced by the injected
-//! [`tt_provider_http::HttpTransport`] seam.
+//! [`tt_provider_http::HttpTransport`] seam and its shared classification
+//! helper [`tt_provider_http::fetch_provider_json`].
 //!
 //! Error classification mirrors `fetchProviderStatus`: transport failures
 //! (timeout/abort/network/redirect-limit/other) become
@@ -18,7 +19,7 @@ use async_trait::async_trait;
 use crate::map::map_paytm_payload;
 use tt_mapper::{AssembleOptions, KnownTrain, MappedStatus};
 use tt_provider_core::{ProviderError, ProviderFetchOptions, TrainStatusProvider};
-use tt_provider_http::{HttpTransport, Request, TransportError};
+use tt_provider_http::{fetch_provider_json, HttpTransport, Request};
 
 const PAYTM_BASE: &str = "https://travel.paytm.com/api/trains/v1/train/status";
 const PAYTM_USER_AGENT: &str = "Mozilla/5.0 (compatible; TrainTracker/1.0) AppleWebKit/537.36";
@@ -78,22 +79,7 @@ impl TrainStatusProvider for PaytmProvider {
             request = request.abort(signal.clone());
         }
 
-        let response = self.transport.execute(request).await.map_err(|err| {
-            let message = match &err {
-                TransportError::Timeout { .. }
-                | TransportError::Aborted
-                | TransportError::Network { .. }
-                | TransportError::RedirectLimit { .. }
-                | TransportError::Other { .. } => "Network error reaching paytm".to_string(),
-                TransportError::Status { status } => format!("paytm returned status {status}"),
-                TransportError::Oversized { .. } => "paytm response too large".to_string(),
-            };
-            ProviderError::upstream_with_cause("paytm", message, err)
-        })?;
-
-        let raw: serde_json::Value = response.json().map_err(|cause| {
-            ProviderError::upstream_with_cause("paytm", "Invalid response body from paytm", cause)
-        })?;
+        let raw = fetch_provider_json(self.transport.as_ref(), "paytm", request).await?;
 
         map_paytm_payload(
             &raw,

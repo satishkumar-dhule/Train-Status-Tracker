@@ -19,7 +19,7 @@ reach past a crate's `lib.rs` surface.
 | `provider-http` | `Client` (timeouts, redirect cap, abort, max bytes) | reqwest wrapping | `providers/http.ts` |
 | `provider-{paytm,goibibo,railyatri,wimt,easemytrip,railradar}` | `Provider::new(cfg)` + trait impl | URL, auth, date format, payload parsing | `providers/*.ts` |
 | `mapper` | `MappedStatus`/`MappedStation` | ZTA untrusted-payload mapping | `train-status-mapper.ts` |
-| `orchestrator` | `fetch_status_with_failover` | unanimity-404, 502, cooldown force-try | `providers/orchestrator.ts` |
+| `orchestrator` | `fetch_status_with_failover`, `build_status_providers` | unanimity-404, 502, cooldown force-try, provider registry | `providers/orchestrator.ts` + `providers/registry.ts` |
 | `qos` | `QosRegistry` | thresholds, cooldown | `providers/qos.ts` |
 | `cache` | `Cache::get/put(key, ttl)` | L1 TTL single-flight + L2 Redis + gzip | `ttl-cache.ts` + `redis-cache.ts` |
 | `rate-limit` | `check(key) -> Result` | sliding window | `rate-limit.ts` |

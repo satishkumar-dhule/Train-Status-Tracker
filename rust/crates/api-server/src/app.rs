@@ -16,8 +16,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use tt_config::Config;
+use tt_orchestrator::build_status_providers;
 use tt_provider_core::TrainStatusProvider;
-use tt_provider_paytm::create_paytm_provider;
 use tt_qos::QosRegistry;
 use tt_telemetry::Telemetry;
 
@@ -43,16 +43,21 @@ pub struct AppState {
     pub qos: Arc<QosRegistry>,
 }
 
-/// Builds the fully-wired application router with the default train-status
-/// provider (the Paytm adapter over the production reqwest transport).
-/// Testable without binding a port.
+/// Builds the fully-wired application router with the configured train-status
+/// providers (from `TRAIN_STATUS_PROVIDERS` / `RAILRADAR_API_KEY`) over the
+/// production reqwest transport. Testable without binding a port.
 pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
+    let transport: Arc<dyn tt_provider_http::HttpTransport> =
+        Arc::new(tt_provider_http::ReqwestTransport::new());
+    let status_providers = build_status_providers(
+        transport,
+        &config.providers_enabled(),
+        config.railradar_api_key.as_deref(),
+    );
     build_app_with_providers(
         config,
         telemetry,
-        vec![Arc::new(create_paytm_provider(Arc::new(
-            tt_provider_http::ReqwestTransport::new(),
-        )))],
+        status_providers,
         Arc::new(QosRegistry::default()),
     )
 }

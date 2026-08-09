@@ -188,6 +188,139 @@ impl ProviderMetrics {
     }
 }
 
+/// Cache and Redis recorder. Port of the instruments created by
+/// `lib/ttl-cache.ts` and `lib/redis-cache.ts`: the L1 counters
+/// (`trains.status.cache.hits`/`misses`/`evictions`/`single_flight`), the L1
+/// size gauge, the `trains.status.redis.requests` counter (with `operation`
+/// and `outcome` attributes), and the `trains.status.redis.duration`
+/// histogram (seconds).
+pub struct CacheMetrics {
+    hits: Option<Counter<u64>>,
+    misses: Option<Counter<u64>>,
+    evictions: Option<Counter<u64>>,
+    single_flight: Option<Counter<u64>>,
+    size_gauge: Option<opentelemetry::metrics::ObservableGauge<i64>>,
+    redis_requests: Option<Counter<u64>>,
+    redis_duration: Option<Histogram<f64>>,
+}
+
+impl CacheMetrics {
+    pub(crate) fn noop() -> CacheMetrics {
+        CacheMetrics {
+            hits: None,
+            misses: None,
+            evictions: None,
+            single_flight: None,
+            size_gauge: None,
+            redis_requests: None,
+            redis_duration: None,
+        }
+    }
+
+    pub(crate) fn from_meter(meter: opentelemetry::metrics::Meter) -> CacheMetrics {
+        let hits = meter
+            .u64_counter("trains.status.cache.hits")
+            .with_description("Train status cache hits")
+            .build();
+        let misses = meter
+            .u64_counter("trains.status.cache.misses")
+            .with_description("Train status cache misses")
+            .build();
+        let evictions = meter
+            .u64_counter("trains.status.cache.evictions")
+            .with_description("Entries dropped from the L1 TTL cache (expiry or cap)")
+            .build();
+        let single_flight = meter
+            .u64_counter("trains.status.cache.single_flight")
+            .with_description("Times a concurrent caller shared an in-flight cache producer")
+            .build();
+        let size_gauge = meter
+            .i64_observable_gauge("trains.status.cache.size")
+            .with_description("Current number of entries in the L1 TTL cache")
+            .with_unit("{entry}")
+            .build();
+        let redis_requests = meter
+            .u64_counter("trains.status.redis.requests")
+            .with_description("Redis cache operations by operation and outcome")
+            .build();
+        let redis_duration = meter
+            .f64_histogram("trains.status.redis.duration")
+            .with_description("Redis cache operation latency")
+            .with_unit("s")
+            .build();
+        CacheMetrics {
+            hits: Some(hits),
+            misses: Some(misses),
+            evictions: Some(evictions),
+            single_flight: Some(single_flight),
+            size_gauge: Some(size_gauge),
+            redis_requests: Some(redis_requests),
+            redis_duration: Some(redis_duration),
+        }
+    }
+
+    /// Increments `trains.status.cache.hits`. No-op when disabled.
+    pub fn record_l1_hit(&self) {
+        if let Some(counter) = &self.hits {
+            counter.add(1, &[]);
+        }
+    }
+
+    /// Increments `trains.status.cache.misses`. No-op when disabled.
+    pub fn record_l1_miss(&self) {
+        if let Some(counter) = &self.misses {
+            counter.add(1, &[]);
+        }
+    }
+
+    /// Increments `trains.status.cache.single_flight`. No-op when disabled.
+    pub fn record_l1_single_flight(&self) {
+        if let Some(counter) = &self.single_flight {
+            counter.add(1, &[]);
+        }
+    }
+
+    /// Adds `count` to `trains.status.cache.evictions`. No-op when disabled.
+    pub fn record_l1_evictions(&self, count: u64) {
+        if let Some(counter) = &self.evictions {
+            counter.add(count, &[]);
+        }
+    }
+
+    /// Observes the current L1 entry count for `trains.status.cache.size`.
+    /// No-op when disabled.
+    pub fn observe_l1_size(&self, size: usize) {
+        if let Some(gauge) = &self.size_gauge {
+            gauge.observe(i64::try_from(size).unwrap_or(i64::MAX), &[]);
+        }
+    }
+
+    /// Records one Redis cache operation on `trains.status.redis.requests`
+    /// (counter, with `operation`/`outcome` attributes) and
+    /// `trains.status.redis.duration` (histogram, seconds). No-op when
+    /// disabled.
+    pub fn record_redis(&self, operation: &str, outcome: &str, duration_secs: f64) {
+        if let Some(counter) = &self.redis_requests {
+            counter.add(
+                1,
+                &[
+                    KeyValue::new("operation", operation.to_string()),
+                    KeyValue::new("outcome", outcome.to_string()),
+                ],
+            );
+        }
+        if let Some(histogram) = &self.redis_duration {
+            histogram.record(
+                duration_secs,
+                &[
+                    KeyValue::new("operation", operation.to_string()),
+                    KeyValue::new("outcome", outcome.to_string()),
+                ],
+            );
+        }
+    }
+}
+
 /// Owned SDK providers kept alive for the lifetime of a [`crate::Telemetry`].
 pub(crate) struct Providers {
     tracer_provider: SdkTracerProvider,

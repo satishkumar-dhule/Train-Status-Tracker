@@ -43,6 +43,6 @@ mod telemetry;
 pub use telemetry::{init, is_enabled, Telemetry};
 
 #[cfg(not(feature = "otlp"))]
-pub use noop::{HttpMetrics, Meter, ProviderMetrics, Span, Tracer};
+pub use noop::{CacheMetrics, HttpMetrics, Meter, ProviderMetrics, Span, Tracer};
 #[cfg(feature = "otlp")]
-pub use otlp::{HttpMetrics, Meter, ProviderMetrics, Span, Tracer};
+pub use otlp::{CacheMetrics, HttpMetrics, Meter, ProviderMetrics, Span, Tracer};

@@ -78,3 +78,36 @@ impl ProviderMetrics {
     /// disabled.
     pub fn record_failover(&self, _outcome: &str, _attempts: u64) {}
 }
+
+/// Cache and Redis recorder. Port of the counters/histogram/gauge emitted by
+/// `lib/ttl-cache.ts` and `lib/redis-cache.ts`; a no-op when telemetry is
+/// disabled.
+pub struct CacheMetrics {}
+
+impl CacheMetrics {
+    pub(crate) fn noop() -> CacheMetrics {
+        CacheMetrics {}
+    }
+
+    /// Increments `trains.status.cache.hits`. No-op when disabled.
+    pub fn record_l1_hit(&self) {}
+
+    /// Increments `trains.status.cache.misses`. No-op when disabled.
+    pub fn record_l1_miss(&self) {}
+
+    /// Increments `trains.status.cache.single_flight`. No-op when disabled.
+    pub fn record_l1_single_flight(&self) {}
+
+    /// Adds `count` to `trains.status.cache.evictions`. No-op when disabled.
+    pub fn record_l1_evictions(&self, _count: u64) {}
+
+    /// Observes the current L1 entry count for `trains.status.cache.size`.
+    /// No-op when disabled.
+    pub fn observe_l1_size(&self, _size: usize) {}
+
+    /// Records one Redis cache operation on `trains.status.redis.requests`
+    /// (counter, with `operation`/`outcome` attributes) and
+    /// `trains.status.redis.duration` (histogram, seconds). No-op when
+    /// disabled.
+    pub fn record_redis(&self, _operation: &str, _outcome: &str, _duration_secs: f64) {}
+}

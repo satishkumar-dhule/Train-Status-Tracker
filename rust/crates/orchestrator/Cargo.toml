@@ -8,7 +8,13 @@ description = "fetch_status_with_failover: unanimity-404, 502, QoS cooldown forc
 [dependencies]
 tt-mapper = { version = "0.1.0", path = "../mapper" }
 tt-provider-core = { version = "0.1.0", path = "../provider-core" }
+tt-provider-easemytrip = { version = "0.1.0", path = "../provider-easemytrip" }
+tt-provider-goibibo = { version = "0.1.0", path = "../provider-goibibo" }
 tt-provider-http = { version = "0.1.0", path = "../provider-http" }
+tt-provider-paytm = { version = "0.1.0", path = "../provider-paytm" }
+tt-provider-railradar = { version = "0.1.0", path = "../provider-railradar" }
+tt-provider-railyatri = { version = "0.1.0", path = "../provider-railyatri" }
+tt-provider-wimt = { version = "0.1.0", path = "../provider-wimt" }
 tt-qos = { version = "0.1.0", path = "../qos" }
 tt-telemetry = { version = "0.1.0", path = "../telemetry" }
 tracing = "0.1.44"
@@ -16,3 +22,4 @@ tracing = "0.1.44"
 [dev-dependencies]
 async-trait = "0.1.77"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }
+tt-provider-http = { version = "0.1.0", path = "../provider-http", features = ["testkit"] }

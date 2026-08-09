@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tt_config::{Config, OtelConfig};
 
-use crate::{HttpMetrics, Meter, ProviderMetrics, Tracer};
+use crate::{CacheMetrics, HttpMetrics, Meter, ProviderMetrics, Tracer};
 
 /// Set once real SDK providers are up, so [`is_enabled`] reports true even when
 /// the process environment changed after startup (port of `isTelemetryEnabled`
@@ -18,6 +18,7 @@ pub struct Telemetry {
     meter: Meter,
     http_metrics: HttpMetrics,
     provider_metrics: ProviderMetrics,
+    cache_metrics: CacheMetrics,
     #[cfg(feature = "otlp")]
     providers: Option<crate::otlp::Providers>,
 }
@@ -50,6 +51,11 @@ impl Telemetry {
         &self.provider_metrics
     }
 
+    /// The cache/Redis recorder; inert when telemetry is disabled.
+    pub fn cache_metrics(&self) -> &CacheMetrics {
+        &self.cache_metrics
+    }
+
     /// Flushes and shuts down the SDK providers, restoring the inert state.
     /// Safe to call once at shutdown; exporter failures never throw.
     pub fn shutdown(self) {
@@ -67,6 +73,7 @@ impl Telemetry {
             meter: Meter::noop(),
             http_metrics: HttpMetrics::noop(),
             provider_metrics: ProviderMetrics::noop(),
+            cache_metrics: CacheMetrics::noop(),
             #[cfg(feature = "otlp")]
             providers: None,
         }
@@ -110,6 +117,7 @@ pub fn init(config: &Config) -> Telemetry {
                     meter: Meter::new(),
                     http_metrics: HttpMetrics::from_meter(meter_handle),
                     provider_metrics: ProviderMetrics::from_meter(providers.meter()),
+                    cache_metrics: CacheMetrics::from_meter(providers.meter()),
                     providers: Some(providers),
                 }
             }

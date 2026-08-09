@@ -40,6 +40,7 @@
 //! | [`DEFAULT_MAX_RESPONSE_BYTES`] | 2 MiB | `DEFAULT_UPSTREAM_MAX_BYTES` |
 //! | [`DEFAULT_MAX_REDIRECTS`] | 3 | Rust seam (TS fetch default is 20) |
 
+mod fetch;
 #[cfg(any(test, feature = "testkit"))]
 mod mock_transport;
 mod reqwest_transport;
@@ -47,6 +48,7 @@ mod reqwest_transport;
 mod test_server;
 mod transport;
 
+pub use fetch::{fetch_provider_json, fetch_provider_text};
 #[cfg(any(test, feature = "testkit"))]
 pub use mock_transport::MockTransport;
 pub use reqwest_transport::ReqwestTransport;

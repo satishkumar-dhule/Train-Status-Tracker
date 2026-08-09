@@ -5,4 +5,22 @@ edition.workspace = true
 license.workspace = true
 description = "Cache::get/put(key, ttl) hiding L1 TTL single-flight + L2 Redis + gzip"
 
+[features]
+default = []
+# Real ioredis-analog store (the `redis` crate). OFF by default so tests stay
+# hermetic; the api-server enables it for production wiring.
+real-client = ["dep:redis"]
+
 [dependencies]
+async-trait = "0.1.91"
+flate2 = "1.1.6"
+futures-util = "0.3.31"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt", "time", "sync"] }
+tracing = "0.1.44"
+tt-telemetry = { version = "0.1.0", path = "../telemetry" }
+redis = { version = "0.29.7", features = ["tokio-comp", "connection-manager"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["full"] }

@@ -1,11 +1,10 @@
 //! A tiny hermetic HTTP test server (local loopback only) used by the
-//! `ReqwestTransport` integration tests. Compiled only in `#[cfg(test)]`.
+//! `ReqwestTransport` integration tests. Compiled only in `#[cfg(test)]`
+//! (gated at the module declaration in `lib.rs`).
 //!
 //! Handlers see the parsed request head (method, path, headers, body) and
 //! return a [`TestResponse`] that may delay, redirect, or stream chunked data —
 //! everything the transport tests need without touching the real network.
-
-#![cfg(test)]
 
 use std::collections::HashMap;
 use std::net::SocketAddr;

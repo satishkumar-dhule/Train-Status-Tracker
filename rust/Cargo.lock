@@ -939,6 +939,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "regex-automata"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1072,7 +1084,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1596,8 +1608,13 @@ dependencies = [
  "tt-mapper",
  "tt-orchestrator",
  "tt-provider-core",
+ "tt-provider-easemytrip",
+ "tt-provider-goibibo",
  "tt-provider-http",
  "tt-provider-paytm",
+ "tt-provider-railradar",
+ "tt-provider-railyatri",
+ "tt-provider-wimt",
  "tt-qos",
  "tt-telemetry",
  "tt-trains-data",
@@ -1650,7 +1667,13 @@ dependencies = [
  "tracing",
  "tt-mapper",
  "tt-provider-core",
+ "tt-provider-easemytrip",
+ "tt-provider-goibibo",
  "tt-provider-http",
+ "tt-provider-paytm",
+ "tt-provider-railradar",
+ "tt-provider-railyatri",
+ "tt-provider-wimt",
  "tt-qos",
  "tt-telemetry",
 ]
@@ -1660,6 +1683,7 @@ name = "tt-provider-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "serde_json",
  "thiserror",
  "tokio",
  "tt-mapper",
@@ -1668,10 +1692,28 @@ dependencies = [
 [[package]]
 name = "tt-provider-easemytrip"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
 
 [[package]]
 name = "tt-provider-goibibo"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+]
 
 [[package]]
 name = "tt-provider-http"
@@ -1706,14 +1748,42 @@ dependencies = [
 [[package]]
 name = "tt-provider-railradar"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
 
 [[package]]
 name = "tt-provider-railyatri"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
 
 [[package]]
 name = "tt-provider-wimt"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
 
 [[package]]
 name = "tt-qos"
@@ -1953,7 +2023,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
