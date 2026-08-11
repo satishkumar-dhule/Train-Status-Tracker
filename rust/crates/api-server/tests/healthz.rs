@@ -225,14 +225,27 @@ fn app_with_health(client: Arc<FakeHealthClient>, state: &'static str) -> Router
     let config = config(&[]);
     let telemetry = Arc::new(tt_telemetry::init(&config));
     let store: Option<Arc<dyn tt_cache::RedisStore>> = Some(InMemoryStore::new());
+    let transport: Arc<dyn tt_provider_http::HttpTransport> =
+        Arc::new(tt_provider_http::MockTransport::new());
     build_app_with_cache(
         config,
         telemetry,
         Vec::new(),
+        transport,
         Arc::new(QosRegistry::default()),
         store,
         Some(health),
+        noop_catalog_transport(),
     )
+}
+
+/// A train-data transport that can never be hit: these tests exercise the
+/// health route, which never touches the catalog fetcher.
+fn noop_catalog_transport() -> Arc<dyn tt_trains_data::HttpTransport> {
+    Arc::new(tt_trains_data::UreqTransport::new(
+        std::time::Duration::from_secs(1),
+        1024,
+    ))
 }
 
 #[tokio::test]

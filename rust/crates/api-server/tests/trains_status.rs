@@ -21,7 +21,7 @@ use tt_api_server::build_app_with_providers;
 use tt_config::Config;
 use tt_mapper::{KnownTrain, MappedStatus};
 use tt_provider_core::{ProviderError, ProviderFetchOptions, TrainStatusProvider};
-use tt_provider_http::MockTransport;
+use tt_provider_http::{HttpTransport, MockTransport};
 use tt_provider_paytm::create_paytm_provider;
 use tt_qos::{QosOptions, QosRegistry};
 
@@ -107,7 +107,14 @@ fn app_serving(body: Value) -> (Router, Arc<MockTransport>) {
     let telemetry = Arc::new(tt_telemetry::init(&config()));
     let provider = create_paytm_provider(mock.clone());
     let qos = Arc::new(QosRegistry::default());
-    let app = build_app_with_providers(config(), telemetry, vec![Arc::new(provider)], qos);
+    let transport: Arc<dyn HttpTransport> = mock.clone();
+    let app = build_app_with_providers(
+        config(),
+        telemetry,
+        vec![Arc::new(provider)],
+        transport,
+        qos,
+    );
     (app, mock)
 }
 
@@ -116,10 +123,18 @@ fn app_serving(body: Value) -> (Router, Arc<MockTransport>) {
 fn app_serving_status(status: u16) -> Router {
     let mut mock = MockTransport::new();
     mock.push(STATUS_PATH, status, "boom");
+    let mock = Arc::new(mock);
     let telemetry = Arc::new(tt_telemetry::init(&config()));
-    let provider = create_paytm_provider(Arc::new(mock));
+    let provider = create_paytm_provider(mock.clone());
+    let transport: Arc<dyn HttpTransport> = mock;
     let qos = Arc::new(QosRegistry::default());
-    build_app_with_providers(config(), telemetry, vec![Arc::new(provider)], qos)
+    build_app_with_providers(
+        config(),
+        telemetry,
+        vec![Arc::new(provider)],
+        transport,
+        qos,
+    )
 }
 
 /// A provider that delegates everything to `inner` but reports its own name,
@@ -191,7 +206,8 @@ fn app_with_providers(providers: Vec<Arc<dyn TrainStatusProvider>>, threshold: u
         failure_threshold: threshold,
         ..QosOptions::default()
     }));
-    build_app_with_providers(config(), telemetry, providers, qos)
+    let transport: Arc<dyn HttpTransport> = Arc::new(MockTransport::new());
+    build_app_with_providers(config(), telemetry, providers, transport, qos)
 }
 
 /// Sends `GET uri` and returns the status plus the raw response body.

@@ -18,7 +18,7 @@ use tt_cache::{InMemoryStore, NOT_FOUND_MARKER};
 use tt_config::Config;
 use tt_mapper::{MappedStation, MappedStatus};
 use tt_provider_core::TrainStatusProvider;
-use tt_provider_http::MockTransport;
+use tt_provider_http::{HttpTransport, MockTransport};
 use tt_provider_paytm::create_paytm_provider;
 use tt_qos::QosRegistry;
 
@@ -117,10 +117,29 @@ fn build_app(
 ) -> Router {
     let telemetry = Arc::new(tt_telemetry::init(&config));
     let provider: Arc<dyn TrainStatusProvider> = Arc::new(create_paytm_provider(mock.clone()));
+    let transport: Arc<dyn HttpTransport> = mock;
     let qos = Arc::new(QosRegistry::default());
     let store: Option<Arc<dyn tt_cache::RedisStore>> =
         store.map(|store| store as Arc<dyn tt_cache::RedisStore>);
-    build_app_with_cache(config, telemetry, vec![provider], qos, store, None)
+    build_app_with_cache(
+        config,
+        telemetry,
+        vec![provider],
+        transport,
+        qos,
+        store,
+        None,
+        noop_catalog_transport(),
+    )
+}
+
+/// A train-data transport that can never be hit: these tests exercise the
+/// status cache layer, which never touches the catalog fetcher.
+fn noop_catalog_transport() -> Arc<dyn tt_trains_data::HttpTransport> {
+    Arc::new(tt_trains_data::UreqTransport::new(
+        std::time::Duration::from_secs(1),
+        1024,
+    ))
 }
 
 /// Sends `GET uri` and returns the status plus the raw response body.

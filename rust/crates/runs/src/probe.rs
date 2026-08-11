@@ -268,7 +268,7 @@ mod tests {
     use std::sync::Arc;
 
     use serde_json::Value;
-    use tt_provider_http::MockTransport;
+    use tt_provider_http::{HttpTransport, MockTransport, Request, Response, TransportError};
 
     use super::*;
 
@@ -278,24 +278,52 @@ mod tests {
         day: 5,
     };
 
-    /// A mock that reports a run on every date whose weekday is in `weekdays`
-    /// and a `runs only on` schedule note (of the matching days) otherwise —
-    /// the `stubRunsOn` helper of `train-runs.test.ts`.
-    fn mock_runs_on(weekdays: &[usize]) -> Arc<MockTransport> {
-        let mut mock = MockTransport::new();
-        let mut date = NOW.add_days(-(RUN_WINDOW_DAYS as i64));
-        for _ in 0..=RUN_WINDOW_DAYS {
-            let api_date = to_api_date(&date.to_iso());
-            let payload = if weekdays.contains(&weekday_of(date)) {
+    /// `MockTransport` matches routes by URL path only, so every probe shares
+    /// one route regardless of `departure_date`.
+    const STATUS_PATH: &str = "/api/trains/v1/train/status";
+
+    /// A `stubRunsOn`-style transport: parses the probe's `departure_date`
+    /// query parameter and reports a run on matching weekdays and a `runs
+    /// only on` schedule note on other days — the `stubRunsOn` helper of
+    /// `train-runs.test.ts`. `MockTransport` matches by URL path only, so it
+    /// cannot vary responses per probe date; this one can.
+    struct RunsOnStub {
+        weekdays: Vec<usize>,
+    }
+
+    impl RunsOnStub {
+        fn new(weekdays: &[usize]) -> Arc<RunsOnStub> {
+            Arc::new(RunsOnStub {
+                weekdays: weekdays.to_vec(),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HttpTransport for RunsOnStub {
+        async fn execute(&self, request: Request) -> Result<Response, TransportError> {
+            let api_date = request
+                .url
+                .split("departure_date=")
+                .nth(1)
+                .and_then(|rest| rest.split('&').next())
+                .unwrap_or_default()
+                .to_string();
+            let y: i32 = api_date[0..4].parse().unwrap_or(0);
+            let m: u32 = api_date[4..6].parse().unwrap_or(0);
+            let d: u32 = api_date[6..8].parse().unwrap_or(0);
+            let date = LocalDate::new(y, m, d).unwrap_or(NOW);
+
+            let payload = if self.weekdays.contains(&weekday_of(date)) {
                 serde_json::json!({
                     "status": { "result": "success" },
                     "body": { "stations": [], "current_station": null },
                 })
             } else {
-                let days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+                let days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
                     .iter()
                     .enumerate()
-                    .filter(|(i, _)| weekdays.contains(i))
+                    .filter(|(i, _)| self.weekdays.contains(i))
                     .map(|(_, name)| *name)
                     .collect::<Vec<_>>()
                     .join(",");
@@ -308,15 +336,11 @@ mod tests {
                     },
                 })
             };
-            mock.push_json(
-                &format!(
-                    "https://travel.paytm.com/api/trains/v1/train/status?train_number=12345&departure_date={api_date}&isH5=true&client=web&deviceIdentifier=Mozilla%20Firefox-150.0.0.0"
-                ),
-                &payload,
-            );
-            date = date.add_days(1);
+            Ok(Response::new(
+                200,
+                serde_json::to_vec(&payload).expect("json is valid"),
+            ))
         }
-        Arc::new(mock)
     }
 
     fn options() -> ProbeTrainRunsOptions {
@@ -329,7 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn schedule_note_wins_over_inference_for_a_weekly_train() {
-        let mock = mock_runs_on(&[3]);
+        let mock = RunsOnStub::new(&[3]);
         let result = probe_train_runs(mock.as_ref(), "12345", &options()).await;
         // Wednesdays only; the note is authoritative.
         assert_eq!(result.weekdays, vec![3]);
@@ -337,23 +361,17 @@ mod tests {
         assert_eq!(result.observed_runs.len(), 3);
         assert_eq!(result.upstream_failures, 0);
         let runs = compute_run_dates(&result.weekdays, NOW, RUN_WINDOW_DAYS);
-        assert_eq!(
-            runs,
-            vec!["20260722", "20260729", "20260805", "20260812"]
-        );
+        assert_eq!(runs, vec!["20260722", "20260729", "20260805", "20260812"]);
     }
 
     #[tokio::test]
     async fn daily_train_is_derived_by_inference() {
-        let mock = mock_runs_on(&[0, 1, 2, 3, 4, 5, 6]);
+        let mock = RunsOnStub::new(&[0, 1, 2, 3, 4, 5, 6]);
         let result = probe_train_runs(mock.as_ref(), "12345", &options()).await;
         assert_eq!(result.weekdays, vec![0, 1, 2, 3, 4, 5, 6]);
         assert_eq!(result.schedule_weekdays, None);
         let runs = compute_run_dates(&result.weekdays, NOW, RUN_WINDOW_DAYS);
-        assert_eq!(
-            runs,
-            vec!["20260803", "20260804", "20260805", "20260806"]
-        );
+        assert_eq!(runs, vec!["20260803", "20260804", "20260805", "20260806"]);
     }
 
     #[tokio::test]
@@ -364,32 +382,21 @@ mod tests {
         // classified as a run. All 7 weekdays therefore get a run count and
         // the train looks daily. This mirrors the `stubRunsOn([])` case.
         let mut mock = MockTransport::new();
-        let mut date = NOW.add_days(-(RUN_WINDOW_DAYS as i64));
-        for _ in 0..=RUN_WINDOW_DAYS {
-            let api_date = to_api_date(&date.to_iso());
-            mock.push_json(
-                &format!(
-                    "https://travel.paytm.com/api/trains/v1/train/status?train_number=11111&departure_date={api_date}&isH5=true&client=web&deviceIdentifier=Mozilla%20Firefox-150.0.0.0"
-                ),
-                &serde_json::json!({
-                    "status": { "result": "success" },
-                    "body": {
-                        "stations": [],
-                        "current_station": null,
-                        "train_status_message": "This train runs only on ",
-                    },
-                }),
-            );
-            date = date.add_days(1);
-        }
-        let result =
-            probe_train_runs(Arc::new(mock).as_ref(), "11111", &options()).await;
+        mock.push_json(
+            STATUS_PATH,
+            &serde_json::json!({
+                "status": { "result": "success" },
+                "body": {
+                    "stations": [],
+                    "current_station": null,
+                    "train_status_message": "This train runs only on ",
+                },
+            }),
+        );
+        let result = probe_train_runs(Arc::new(mock).as_ref(), "11111", &options()).await;
         assert_eq!(result.weekdays, vec![0, 1, 2, 3, 4, 5, 6]);
         let runs = compute_run_dates(&result.weekdays, NOW, RUN_WINDOW_DAYS);
-        assert_eq!(
-            runs,
-            vec!["20260803", "20260804", "20260805", "20260806"]
-        );
+        assert_eq!(runs, vec!["20260803", "20260804", "20260805", "20260806"]);
     }
 
     #[tokio::test]
@@ -397,22 +404,14 @@ mod tests {
         // Every probe positively answers "failure": the train does not exist,
         // so no weekday ever ran.
         let mut mock = MockTransport::new();
-        let mut date = NOW.add_days(-(RUN_WINDOW_DAYS as i64));
-        for _ in 0..=RUN_WINDOW_DAYS {
-            let api_date = to_api_date(&date.to_iso());
-            mock.push_json(
-                &format!(
-                    "https://travel.paytm.com/api/trains/v1/train/status?train_number=99999&departure_date={api_date}&isH5=true&client=web&deviceIdentifier=Mozilla%20Firefox-150.0.0.0"
-                ),
-                &serde_json::json!({
-                    "error": true,
-                    "status": { "result": "failure" },
-                }),
-            );
-            date = date.add_days(1);
-        }
-        let result =
-            probe_train_runs(Arc::new(mock).as_ref(), "99999", &options()).await;
+        mock.push_json(
+            STATUS_PATH,
+            &serde_json::json!({
+                "error": true,
+                "status": { "result": "failure" },
+            }),
+        );
+        let result = probe_train_runs(Arc::new(mock).as_ref(), "99999", &options()).await;
         assert_eq!(result.weekdays, Vec::<usize>::new());
         assert_eq!(result.observed_runs, Vec::<String>::new());
         assert_eq!(result.upstream_failures, 0);
@@ -423,20 +422,8 @@ mod tests {
     #[tokio::test]
     async fn all_upstream_failures_are_counted() {
         let mut mock = MockTransport::new();
-        let mut date = NOW.add_days(-(RUN_WINDOW_DAYS as i64));
-        for _ in 0..=RUN_WINDOW_DAYS {
-            let api_date = to_api_date(&date.to_iso());
-            mock.push(
-                &format!(
-                    "https://travel.paytm.com/api/trains/v1/train/status?train_number=77777&departure_date={api_date}&isH5=true&client=web&deviceIdentifier=Mozilla%20Firefox-150.0.0.0"
-                ),
-                200,
-                b"<html>oops</html>".to_vec(),
-            );
-            date = date.add_days(1);
-        }
-        let result =
-            probe_train_runs(Arc::new(mock).as_ref(), "77777", &options()).await;
+        mock.push(STATUS_PATH, 200, b"<html>oops</html>".to_vec());
+        let result = probe_train_runs(Arc::new(mock).as_ref(), "77777", &options()).await;
         assert_eq!(result.weekdays, Vec::<usize>::new());
         assert_eq!(result.observed_runs, Vec::<String>::new());
         assert_eq!(result.upstream_failures, (RUN_WINDOW_DAYS + 1) as usize);

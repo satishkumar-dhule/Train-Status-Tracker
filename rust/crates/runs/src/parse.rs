@@ -141,10 +141,7 @@ mod tests {
 
     #[test]
     fn an_unknown_weekday_token_makes_the_whole_parse_none() {
-        assert_eq!(
-            parse_schedule_weekdays("This train runs only on XYZ"),
-            None
-        );
+        assert_eq!(parse_schedule_weekdays("This train runs only on XYZ"), None);
     }
 
     #[test]

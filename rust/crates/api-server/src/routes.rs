@@ -2,10 +2,17 @@
 //!
 //! `healthz` mirrors `routes/health.ts` (reporting the Redis health
 //! controller's `up`/`down`/`disabled` state), `not_found` mirrors the
-//! catch-all `app.use((_req, res) => ... 404)` in `app.ts`, and
+//! catch-all `app.use((_req, res) => ... 404)` in `app.ts`,
 //! [`train_status`] (in the private [`status`] submodule) mirrors
-//! `routes/trains.ts`.
+//! `routes/trains.ts`, and [`train_runs`] (in the private [`runs`] submodule)
+//! mirrors `routes/train-runs.ts`.
 
+//! `/api/trains` (catalog) and `/api/trains/search` (in the private `catalog`
+//! submodule) mirror `routes/train-catalog.ts`.
+
+mod catalog;
+mod providers;
+mod runs;
 mod status;
 
 use axum::extract::State;
@@ -17,6 +24,9 @@ use tt_contract::{ErrorResponse, HealthStatus, HealthStatusRedis};
 
 use crate::app::AppState;
 
+pub(crate) use catalog::{train_catalog, train_search};
+pub(crate) use providers::providers_status;
+pub(crate) use runs::train_runs;
 pub(crate) use status::{train_status, CachedStatus};
 
 /// `GET /api/healthz` — process liveness plus per-dependency checks. The

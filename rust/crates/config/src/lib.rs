@@ -30,8 +30,9 @@ pub const DEFAULT_PORT: u16 = 5000;
 pub const DEFAULT_LOG_LEVEL: &str = "info";
 /// `REDIS_URL` — default `redis://localhost:6379`.
 pub const DEFAULT_REDIS_URL: &str = "redis://localhost:6379";
-/// `TRAIN_CATALOG_TTL_MS` — default 1 hour (3600000 ms).
-pub const DEFAULT_TRAIN_CATALOG_TTL_MS: u64 = 3_600_000;
+/// `TRAIN_CATALOG_TTL_MS` — default 2 hours (7200000 ms), matching
+/// `TRAIN_DATA_DEFAULT_TTL_MS` in trains-data.
+pub const DEFAULT_TRAIN_CATALOG_TTL_MS: u64 = 7_200_000;
 /// `TRAIN_STATUS_QOS_FAILURE_THRESHOLD` — default 3.
 pub const DEFAULT_QOS_FAILURE_THRESHOLD: u32 = 3;
 /// `TRAIN_STATUS_QOS_COOLDOWN_MS` — default 60 seconds.
@@ -123,7 +124,9 @@ pub struct Config {
     pub railradar_api_key: Option<String>,
     /// `TRAIN_DATA_URL` — optional upstream catalog override.
     pub train_data_url: Option<String>,
-    /// `TRAIN_CATALOG_TTL_MS` — default 3600000.
+    /// `TRAIN_DATA_VERSION` — optional upstream catalog cache-buster (`?v=`).
+    pub train_data_version: Option<String>,
+    /// `TRAIN_CATALOG_TTL_MS` — default 7200000.
     pub train_catalog_ttl_ms: u64,
     /// `SERVICE_VERSION` — optional, reported on healthz + telemetry.
     pub service_version: Option<String>,
@@ -183,6 +186,7 @@ impl Config {
             ),
             railradar_api_key: env::trimmed(env, "RAILRADAR_API_KEY").map(str::to_string),
             train_data_url: env::trimmed(env, "TRAIN_DATA_URL").map(str::to_string),
+            train_data_version: env::trimmed(env, "TRAIN_DATA_VERSION").map(str::to_string),
             train_catalog_ttl_ms: env::positive_u64(
                 env,
                 "TRAIN_CATALOG_TTL_MS",
@@ -318,7 +322,8 @@ mod tests {
         assert_eq!(cfg.train_status_providers, default_provider_order());
         assert_eq!(cfg.railradar_api_key, None);
         assert_eq!(cfg.train_data_url, None);
-        assert_eq!(cfg.train_catalog_ttl_ms, 3_600_000);
+        assert_eq!(cfg.train_data_version, None);
+        assert_eq!(cfg.train_catalog_ttl_ms, 7_200_000);
         assert_eq!(cfg.service_version, None);
         assert_eq!(cfg.qos_failure_threshold, 3);
         assert_eq!(cfg.qos_cooldown_ms, 60_000);
@@ -363,6 +368,7 @@ mod tests {
             ("TRAIN_STATUS_PROVIDERS", "  Paytm , RailRadar,paytm, bogus"),
             ("RAILRADAR_API_KEY", "sekrit"),
             ("TRAIN_DATA_URL", "https://example.com/trains.json"),
+            ("TRAIN_DATA_VERSION", "2026-08-10"),
             ("TRAIN_CATALOG_TTL_MS", "1800000"),
             ("SERVICE_VERSION", "1.2.3"),
             ("TRAIN_STATUS_QOS_FAILURE_THRESHOLD", "5"),
@@ -404,6 +410,7 @@ mod tests {
             cfg.train_data_url.as_deref(),
             Some("https://example.com/trains.json")
         );
+        assert_eq!(cfg.train_data_version.as_deref(), Some("2026-08-10"));
         assert_eq!(cfg.train_catalog_ttl_ms, 1_800_000);
         assert_eq!(cfg.service_version.as_deref(), Some("1.2.3"));
         assert_eq!(cfg.qos_failure_threshold, 5);
@@ -456,7 +463,7 @@ mod tests {
         assert_eq!(cfg.port, 5000);
         assert_eq!(cfg.redis_mode, RedisMode::Auto);
         assert_eq!(cfg.redis_url, "redis://localhost:6379");
-        assert_eq!(cfg.train_catalog_ttl_ms, 3_600_000);
+        assert_eq!(cfg.train_catalog_ttl_ms, 7_200_000);
         assert_eq!(cfg.qos_failure_threshold, 3);
         assert_eq!(cfg.qos_cooldown_ms, 60_000);
         assert_eq!(cfg.qos_latency_samples, 100);

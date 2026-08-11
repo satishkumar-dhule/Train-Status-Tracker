@@ -23,14 +23,24 @@ use tt_config::Config;
 use tt_mapper::MappedStatus;
 use tt_orchestrator::build_status_providers;
 use tt_provider_core::TrainStatusProvider;
+use tt_provider_http::HttpTransport;
 use tt_qos::QosRegistry;
+use tt_rate_limit::{create_rate_limiter, RateLimitOptions, RateLimiter};
+use tt_runs::RunWeekdaysResult;
 use tt_telemetry::Telemetry;
+use tt_trains_data::{
+    create_train_data_fetcher, TrainDataFetcher, TrainDataFetcherOptions,
+    TRAIN_DATA_DEFAULT_MAX_RESPONSE_BYTES, TRAIN_DATA_DEFAULT_TIMEOUT_MS,
+};
 
 use crate::middleware::{
     metrics, panic_to_error_response, security_headers, FailureLog, RequestLog, RequestSpan,
     ResponseLog,
 };
-use crate::routes::{healthz, not_found, train_status, CachedStatus};
+use crate::routes::{
+    healthz, not_found, providers_status, train_catalog, train_runs, train_search, train_status,
+    CachedStatus,
+};
 
 /// Shared, cloneable state handed to handlers and middleware.
 #[derive(Clone)]
@@ -56,6 +66,21 @@ pub struct AppState {
     /// the connection behind `status_l2` so it reports the same reachability;
     /// `None` whenever the store is too. Read by `/api/healthz`.
     pub redis_health: Option<Arc<RedisHealth>>,
+    /// L1 in-memory single-flight cache for train run-date probes, mirroring
+    /// `runsCache` in `routes/runs.ts`.
+    pub runs_l1: Arc<TtlCache<RunWeekdaysResult>>,
+    /// L2 Redis cache for run-date probes (`createRedisTtlCache` with the
+    /// `RUNS_*` keys); `None` without Redis or a real-client build.
+    pub runs_l2: Option<Arc<RedisTtlCache<RunWeekdaysResult>>>,
+    /// Token-bucket limiter for `/api/trains/runs` (`RateLimitOptions`),
+    /// mirroring the per-route middleware in the reference server.
+    pub runs_limiter: Arc<RateLimiter>,
+    /// Transport used for run-date probes; `Arc` so L1/L2 producers can hold
+    /// their own clone. Tests substitute `MockTransport`-backed instances.
+    pub runs_transport: Arc<dyn HttpTransport>,
+    /// The train catalog fetcher (`lib/train-catalog.ts`): NTES train list,
+    /// TTL-cached, failing open to the bundled dataset.
+    pub catalog: Arc<TrainDataFetcher>,
 }
 
 /// Builds the fully-wired application router with the configured train-status
@@ -65,7 +90,7 @@ pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
     let transport: Arc<dyn tt_provider_http::HttpTransport> =
         Arc::new(tt_provider_http::ReqwestTransport::new());
     let status_providers = build_status_providers(
-        transport,
+        transport.clone(),
         &config.providers_enabled(),
         config.railradar_api_key.as_deref(),
     );
@@ -73,41 +98,62 @@ pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
         config,
         telemetry,
         status_providers,
+        transport,
         Arc::new(QosRegistry::default()),
     )
 }
 
-/// Builds the fully-wired application router over an injected provider list
-/// and QoS registry. Route tests substitute `MockTransport`-backed providers
-/// here so the whole HTTP surface stays hermetic; the Redis client (store +
-/// health) comes from the config (and is `None` on builds without the cache
-/// `real-client` feature).
+/// Builds the fully-wired application router over an injected provider list,
+/// transport, and QoS registry. Route tests substitute `MockTransport`-backed
+/// providers here so the whole HTTP surface stays hermetic; the Redis client
+/// (store + health) comes from the config (and is `None` on builds without the
+/// cache `real-client` feature).
 pub fn build_app_with_providers(
     config: Config,
     telemetry: Arc<Telemetry>,
     status_providers: Vec<Arc<dyn TrainStatusProvider>>,
+    transport: Arc<dyn HttpTransport>,
     qos: Arc<QosRegistry>,
 ) -> Router {
     let redis = create_redis_client(&redis_config(&config));
     let store = redis.as_ref().map(|client| Arc::clone(&client.store));
     let health = redis.as_ref().map(|client| Arc::clone(&client.health));
-    build_app_with_cache(config, telemetry, status_providers, qos, store, health)
+    let catalog_transport: Arc<dyn tt_trains_data::HttpTransport> =
+        Arc::new(tt_trains_data::UreqTransport::new(
+            std::time::Duration::from_millis(TRAIN_DATA_DEFAULT_TIMEOUT_MS),
+            TRAIN_DATA_DEFAULT_MAX_RESPONSE_BYTES,
+        ));
+    build_app_with_cache(
+        config,
+        telemetry,
+        status_providers,
+        transport,
+        qos,
+        store,
+        health,
+        catalog_transport,
+    )
 }
 
 /// The shared wiring core: every constructor funnels here. Route tests pass an
 /// injected [`RedisStore`] (the cache crate's `testkit`) to exercise L2
 /// behavior hermetically, and an optional health controller for the
-/// `/api/healthz` `redis` field (`None` reports `disabled`).
+/// `/api/healthz` `redis` field (`None` reports `disabled`). Every dependency
+/// is positional deliberately: the constructors mirror `app.ts`'s single
+/// wiring point and the parallel injected/direct variants stay diff-minimal.
+#[allow(clippy::too_many_arguments)]
 pub fn build_app_with_cache(
     config: Config,
     telemetry: Arc<Telemetry>,
     status_providers: Vec<Arc<dyn TrainStatusProvider>>,
+    transport: Arc<dyn HttpTransport>,
     qos: Arc<QosRegistry>,
     store: Option<Arc<dyn RedisStore>>,
     redis_health: Option<Arc<RedisHealth>>,
+    catalog_transport: Arc<dyn tt_trains_data::HttpTransport>,
 ) -> Router {
     let status_l1 = TtlCache::new(config.status_cache_l1_ttl_ms as i64);
-    let status_l2 = store.and_then(|store| {
+    let status_l2 = store.clone().and_then(|store| {
         let mut options = RedisCacheOptions::with_defaults(
             config.status_cache_ttl_ms as i64,
             config.status_cache_neg_ttl_ms as i64,
@@ -123,6 +169,56 @@ pub fn build_app_with_cache(
             }
         }
     });
+    let runs_l1 = TtlCache::new(config.runs_cache_l1_ttl_ms as i64);
+    let runs_l2 = store.and_then(|store| {
+        let mut options = RedisCacheOptions::with_defaults(
+            config.runs_cache_ttl_ms as i64,
+            config.runs_cache_neg_ttl_ms as i64,
+        );
+        options.key_prefix = config.runs_redis_key_prefix.clone();
+        options.jitter = config.runs_cache_ttl_jitter;
+        options.compress = config.redis_gzip;
+        match create_redis_ttl_cache(store, options) {
+            Ok(cache) => Some(cache),
+            Err(err) => {
+                tracing::warn!(error = %err, "runs cache disabled by invalid options");
+                None
+            }
+        }
+    });
+    let runs_limiter = match create_rate_limiter(RateLimitOptions::new(
+        config.runs_rate_limit_per_min,
+        60_000,
+    )) {
+        Ok(limiter) => limiter,
+        Err(err) => {
+            tracing::warn!(error = %err, "runs rate limiter invalid; falling back to defaults");
+            create_rate_limiter(RateLimitOptions::new(10, 60_000))
+                .expect("default rate limiter options are valid")
+        }
+    };
+
+    let catalog = match create_train_data_fetcher(TrainDataFetcherOptions {
+        base_url: config.train_data_url.clone(),
+        version: config.train_data_version.clone(),
+        ttl_ms: Some(config.train_catalog_ttl_ms),
+        transport: Some(catalog_transport),
+        on_error: Some(Arc::new(|error: &str| {
+            tracing::warn!(
+                error,
+                "Train catalog upstream fetch failed; serving bundled dataset"
+            );
+        })),
+        ..TrainDataFetcherOptions::default()
+    }) {
+        Ok(fetcher) => Arc::new(fetcher),
+        Err(err) => {
+            tracing::warn!(error = %err, "train catalog disabled by invalid options");
+            create_train_data_fetcher(TrainDataFetcherOptions::default())
+                .map(Arc::new)
+                .expect("default fetcher options are valid")
+        }
+    };
 
     let state = AppState {
         config: config.clone(),
@@ -133,11 +229,20 @@ pub fn build_app_with_cache(
         status_l1,
         status_l2,
         redis_health,
+        runs_l1,
+        runs_l2,
+        runs_limiter,
+        runs_transport: transport,
+        catalog,
     };
 
     Router::new()
         .route("/api/healthz", routing::get(healthz))
+        .route("/api/trains", routing::get(train_catalog))
+        .route("/api/trains/search", routing::get(train_search))
         .route("/api/trains/status", routing::get(train_status))
+        .route("/api/trains/runs", routing::get(train_runs))
+        .route("/api/trains/providers", routing::get(providers_status))
         .fallback(not_found)
         .layer(CatchPanicLayer::custom(panic_to_error_response))
         .layer(from_fn_with_state(state.clone(), metrics))

@@ -23,6 +23,5 @@ mod probe;
 
 pub use parse::parse_schedule_weekdays;
 pub use probe::{
-    compute_run_dates, probe_train_runs, ProbeTrainRunsOptions, RunWeekdaysResult,
-    RUN_WINDOW_DAYS,
+    compute_run_dates, probe_train_runs, ProbeTrainRunsOptions, RunWeekdaysResult, RUN_WINDOW_DAYS,
 };

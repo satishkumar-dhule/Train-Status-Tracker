@@ -108,7 +108,9 @@ impl RateLimiter {
             .map(|entry| entry.start <= t - self.window_ms)
             .unwrap_or(true);
         if stale {
-            state.windows.insert(key.to_string(), Entry { start: t, count: 0 });
+            state
+                .windows
+                .insert(key.to_string(), Entry { start: t, count: 0 });
             if !state.order.contains(&key.to_string()) {
                 state.order.push_back(key.to_string());
             }
@@ -163,7 +165,10 @@ mod tests {
     use super::*;
 
     /// A controllable clock: `now` returns the current tick; `advance` moves it.
-    fn make_now() -> (Arc<dyn Fn() -> i64 + Send + Sync>, Arc<std::sync::Mutex<i64>>) {
+    fn make_now() -> (
+        Arc<dyn Fn() -> i64 + Send + Sync>,
+        Arc<std::sync::Mutex<i64>>,
+    ) {
         let t = Arc::new(std::sync::Mutex::new(1_000_000_i64));
         let clock = {
             let t = Arc::clone(&t);

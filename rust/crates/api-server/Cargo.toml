@@ -30,6 +30,8 @@ tt-provider-railradar = { version = "0.1.0", path = "../provider-railradar" }
 tt-provider-railyatri = { version = "0.1.0", path = "../provider-railyatri" }
 tt-provider-wimt = { version = "0.1.0", path = "../provider-wimt" }
 tt-qos = { version = "0.1.0", path = "../qos" }
+tt-rate-limit = { version = "0.1.0", path = "../rate-limit" }
+tt-runs = { version = "0.1.0", path = "../runs" }
 tt-telemetry = { version = "0.1.0", path = "../telemetry" }
 tt-trains-data = { version = "0.1.0", path = "../trains-data" }
 url = "2.5.8"

@@ -44,11 +44,11 @@ pub use telemetry::{init, is_enabled, Telemetry};
 
 #[cfg(not(feature = "otlp"))]
 pub use noop::{
-    CacheMetrics, HttpMetrics, Meter, ProviderMetrics, RateLimitMetrics, RunsRequestsMetrics,
-    Span, Tracer,
+    CacheMetrics, HttpMetrics, Meter, ProviderMetrics, RateLimitMetrics, RunsRequestsMetrics, Span,
+    Tracer,
 };
 #[cfg(feature = "otlp")]
 pub use otlp::{
-    CacheMetrics, HttpMetrics, Meter, ProviderMetrics, RateLimitMetrics, RunsRequestsMetrics,
-    Span, Tracer,
+    CacheMetrics, HttpMetrics, Meter, ProviderMetrics, RateLimitMetrics, RunsRequestsMetrics, Span,
+    Tracer,
 };

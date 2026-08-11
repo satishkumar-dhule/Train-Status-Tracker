@@ -61,15 +61,19 @@ pub struct QosRecord {
 }
 
 /// `ProviderQosStatus` in `qos.ts`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum QosStatus {
     Ok,
     Degraded,
     Down,
 }
 
-/// `ProviderQosSnapshot` in `qos.ts`, field for field.
-#[derive(Debug, Clone, PartialEq)]
+/// `ProviderQosSnapshot` in `qos.ts`, field for field. Serializes with
+/// camelCase keys so the `/api/trains/providers` response matches the
+/// reference wire shape byte for byte.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QosSnapshot {
     pub name: String,
     pub requests: u64,
