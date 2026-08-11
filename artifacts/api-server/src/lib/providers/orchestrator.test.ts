@@ -49,6 +49,7 @@ function mappedStatus(trainName: string): MappedStatus {
     current_delay_minutes: null,
     status_message: null,
     last_updated: null,
+    provider: "",
     stations: [],
   };
 }

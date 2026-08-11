@@ -150,6 +150,7 @@ describe("assembleMappedStatus", () => {
       current_delay_minutes: 20,
       status_message: "Running on time",
       last_updated: "2026-08-05T12:00:00Z",
+      provider: "",
       stations: expect.any(Array),
     });
     expect(status.stations[1]).toMatchObject({

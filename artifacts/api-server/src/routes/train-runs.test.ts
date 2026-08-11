@@ -1,6 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import app from "../app";
+
+/** Fixed local reference date the route's run-date math is evaluated against. */
+const TEST_NOW = new Date(2026, 7, 5, 12, 0, 0);
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(TEST_NOW);
+});
 
 function successPayload(): Response {
   return new Response(
@@ -55,6 +63,7 @@ function stubRunsOn(weekdays: number[]) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 

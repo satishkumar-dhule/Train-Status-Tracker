@@ -1,4 +1,4 @@
-import { it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 import { metrics as sdkMetrics, tracing as sdkTracing } from "@opentelemetry/sdk-node";
 import { trace } from "@opentelemetry/api";
 import {

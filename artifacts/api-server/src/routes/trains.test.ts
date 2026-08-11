@@ -76,6 +76,7 @@ describe("GET /api/trains/status", () => {
     expect(res.status).toBe(200);
     expect(res.body.train_number).toBe(TRAIN_NUMBER);
     expect(res.body.train_name).toBe("Indore Intercity SF Express");
+    expect(res.body.provider).toBe("paytm");
     expect(res.body.stations).toHaveLength(3);
     expect(res.body.stations[1]).toMatchObject({
       station_code: "NDLS",
@@ -308,6 +309,144 @@ describe("GET /api/trains/status", () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(second.body).toEqual(first.body);
+  });
+});
+
+describe("GET /api/trains/status with a pinned provider", () => {
+  const goibiboBody = {
+    success: true,
+    response: {
+      trainDetails: {
+        trainNumber: TRAIN_NUMBER,
+        trainName: "Indore Intercity SF Express",
+        currentStation: { name: "New Delhi", code: "NDLS" },
+      },
+      lastUpdated: "06-08-2026 12:54:00",
+      stations: [
+        {
+          Station: { name: "Ahmedabad Jn", code: "ADI", expectedPlatformNumber: 1 },
+          HaltMinutes: 20,
+          ArrivalDetails: { scheduledArrivalTime: "22:40", actualArrivalTime: "22:40" },
+          DepartureDetails: { scheduledDepartureTime: "23:00", actualDepartureTime: "23:00" },
+          DayDetails: { dayCount: 1 },
+          Distance: 0,
+        },
+      ],
+    },
+  };
+
+  it("pins the lookup to the requested gateway and reports it as the provider", async () => {
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      if (String(input).startsWith("https://travel.paytm.com")) {
+        // A healthy Paytm must be ignored when the user pins Goibibo.
+        return new Response("boom", { status: 500 });
+      }
+      return jsonResponse(goibiboBody);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const now = new Date();
+    const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({ train_number: TRAIN_NUMBER, departure_date: today, provider: "goibibo" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.provider).toBe("goibibo");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fail over when the pinned provider errors", async () => {
+    const fetchSpy = vi.fn(async () => new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({ train_number: TRAIN_NUMBER, departure_date: "20260809", provider: "paytm" });
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: "Could not reach train data provider" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 404 when the pinned provider reports the train as not found", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({ error: true, status: { result: "failure" } }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({ train_number: TRAIN_NUMBER, departure_date: "20260809", provider: "paytm" });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "Train not found or no data available" });
+  });
+
+  it("rejects an unknown provider name", async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(happyRaw));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({
+        train_number: TRAIN_NUMBER,
+        departure_date: "20260809",
+        provider: "not-a-provider",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Invalid enum value");
+    expect(res.body.error).toContain("railradar");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a disabled provider such as RailRadar without a key", async () => {
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query({
+        train_number: TRAIN_NUMBER,
+        departure_date: "20260809",
+        provider: "railradar",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("provider must be one of");
+    expect(res.body.error).not.toContain("railradar");
+  });
+
+  it("rejects repeated provider params as a validation error", async () => {
+    const res = await request(app)
+      .get("/api/trains/status")
+      .query("provider=paytm&provider=goibibo")
+      .query({ train_number: TRAIN_NUMBER, departure_date: "20260809" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("expected string, received array");
+  });
+
+  it("caches pinned and auto lookups separately", async () => {
+    const fetchSpy = vi.fn(async (input: string | URL) => {
+      if (String(input).startsWith("https://travel.paytm.com")) {
+        return jsonResponse(happyRaw);
+      }
+      return jsonResponse(goibiboBody);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const query = { train_number: TRAIN_NUMBER, departure_date: "20260808" };
+    const auto = await request(app).get("/api/trains/status").query(query);
+    const pinned = await request(app)
+      .get("/api/trains/status")
+      .query({ ...query, provider: "goibibo" });
+    const autoAgain = await request(app).get("/api/trains/status").query(query);
+
+    expect(auto.body.provider).toBe("paytm");
+    expect(pinned.body.provider).toBe("goibibo");
+    expect(autoAgain.body.provider).toBe("paytm");
+    // One upstream call for the auto query and one for the pinned query; the
+    // repeated auto lookup is served from the per-query cache.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -135,7 +135,8 @@ router.get("/trains/status", async (req, res): Promise<void> => {
   // Express 5's query parser returns arrays for repeated params (e.g.
   // `?train_number=1&train_number=2`), and the generated coerce schema would
   // silently stringify them. Reject missing and repeated params up front so
-  // they fail validation with a clean message instead.
+  // they fail validation with a clean message instead. `provider` is optional,
+  // so only the two required params are checked here.
   const issues: {
     code: string;
     message: string;
@@ -144,7 +145,7 @@ router.get("/trains/status", async (req, res): Promise<void> => {
     received?: string;
   }[] = [];
 
-  for (const param of Object.keys(GetTrainStatusQueryParams.shape)) {
+  for (const param of ["train_number", "departure_date"]) {
     const value = req.query[param];
     if (value === undefined) {
       issues.push({ code: "invalid_type", message: "Required", path: [param] });
@@ -157,6 +158,17 @@ router.get("/trains/status", async (req, res): Promise<void> => {
         message: "Required",
       });
     }
+  }
+
+  const rawProvider = req.query.provider;
+  if (Array.isArray(rawProvider)) {
+    issues.push({
+      code: "invalid_type",
+      expected: "string",
+      received: "array",
+      path: ["provider"],
+      message: "Required",
+    });
   }
 
   if (issues.length > 0) {
@@ -172,7 +184,7 @@ router.get("/trains/status", async (req, res): Promise<void> => {
     return;
   }
 
-  const { train_number, departure_date } = parsed.data;
+  const { train_number, departure_date, provider } = parsed.data;
 
   if (!isValidApiDate(departure_date)) {
     recordStatusResult("validation_error");
@@ -182,7 +194,24 @@ router.get("/trains/status", async (req, res): Promise<void> => {
     return;
   }
 
-  const key = `${train_number}:${departure_date}`;
+  // A pinned provider must be one that is enabled in this deployment; the
+  // enum in the schema only covers the known upstream names.
+  if (provider !== undefined) {
+    const enabledNames = statusProviders.map((p) => p.name);
+    if (!enabledNames.includes(provider)) {
+      recordStatusResult("validation_error");
+      res.status(400).json({
+        error: `provider must be one of: ${enabledNames.join(", ")}`,
+      });
+      return;
+    }
+  }
+
+  // Pinned lookups are cached separately so a provider-specific result can
+  // never be served for the auto (failover) query or vice versa.
+  const key = provider
+    ? `${provider}:${train_number}:${departure_date}`
+    : `${train_number}:${departure_date}`;
 
   try {
     // Which layer satisfied the lookup: in-process L1, shared Redis L2, or a
@@ -213,6 +242,7 @@ router.get("/trains/status", async (req, res): Promise<void> => {
           departure_date,
           {
             knownTrain: findTrainByNumber(TRAINS, train_number) ?? null,
+            pinnedProvider: provider,
           },
         );
         const payload = GetTrainStatusResponse.parse(upstream);

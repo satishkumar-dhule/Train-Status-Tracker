@@ -118,6 +118,7 @@ export function assembleMappedStatus(
     current_delay_minutes: currentStation?.delay_minutes ?? null,
     status_message: stripHtml(options.statusMessage ?? null),
     last_updated: options.lastUpdated ?? null,
+    provider: "",
     stations,
   };
 }

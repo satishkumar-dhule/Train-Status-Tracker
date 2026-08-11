@@ -229,6 +229,7 @@ describe("mapStatusResponse", () => {
       current_delay_minutes: 20,
       status_message: "Running on time",
       last_updated: "2026-08-05T12:00:00Z",
+      provider: "",
       stations: [
         expect.objectContaining({
           station_code: "NDLS",
@@ -306,6 +307,7 @@ describe("mapStatusResponse", () => {
       current_delay_minutes: null,
       status_message: null,
       last_updated: null,
+      provider: "",
       stations: [],
     });
   });

@@ -94,6 +94,8 @@ export interface MappedStatus {
   current_delay_minutes: number | null;
   status_message: string | null;
   last_updated: string | null;
+  /** The upstream ("gateway") that produced this status; set by the orchestrator. */
+  provider: string;
   stations: MappedStation[];
 }
 
@@ -127,6 +129,7 @@ export function mapStatusResponse(
     current_delay_minutes: currentStation?.delay_minutes ?? null,
     status_message: stripHtml(payload.train_status_message),
     last_updated: payload.server_timestamp ?? null,
+    provider: "",
     stations,
   };
 }

@@ -15,6 +15,12 @@ export interface FailoverOptions {
   knownTrain?: KnownTrain | null;
   /** QoS registry consulted for circuit breaking; shared one by default. */
   qos?: QosRegistry;
+  /**
+   * Pin the lookup to a single provider by name, skipping the failover chain
+   * entirely (no other provider is consulted, whatever the QoS state). The
+   * caller is responsible for pre-validating that the provider is enabled.
+   */
+  pinnedProvider?: string;
 }
 
 const getMeter = () => metrics.getMeter("train-tracker-api");
@@ -73,8 +79,29 @@ export async function fetchStatusWithFailover(
   const qos: QosRegistry = options.qos ?? defaultQosRegistry;
   const enabled = providers.filter((provider) => provider.enabled);
 
+  // A pinned provider is consulted unconditionally — the user explicitly
+  // asked for it, so neither failover nor the circuit breaker may override it.
+  const pinned =
+    options.pinnedProvider !== undefined
+      ? enabled.find((provider) => provider.name === options.pinnedProvider)
+      : undefined;
+
+  // Defense in depth: routes validate the pinned provider before calling, but
+  // never silently fall back to failover when a requested provider is absent.
+  if (options.pinnedProvider !== undefined && pinned === undefined) {
+    throw new TrainStatusUpstreamError(
+      options.pinnedProvider,
+      `Train status provider "${options.pinnedProvider}" is not configured`,
+    );
+  }
+
   const available = enabled.filter((provider) => qos.isAvailable(provider.name));
-  const toConsult = available.length > 0 ? available : enabled.slice(0, 1);
+  const toConsult =
+    pinned !== undefined
+      ? [pinned]
+      : available.length > 0
+        ? available
+        : enabled.slice(0, 1);
   for (const provider of enabled) {
     if (
       !toConsult.includes(provider) &&
@@ -120,7 +147,7 @@ export async function fetchStatusWithFailover(
           "Train status failover recovered",
         );
       }
-      return status;
+      return { ...status, provider: provider.name };
     } catch (err) {
       const latencyMs = performance.now() - startedAt;
       if (err instanceof TrainStatusNotFoundError) {

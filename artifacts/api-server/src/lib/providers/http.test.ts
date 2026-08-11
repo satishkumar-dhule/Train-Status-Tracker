@@ -41,6 +41,7 @@ const mapped: MappedStatus = {
   current_delay_minutes: null,
   status_message: null,
   last_updated: null,
+  provider: "",
   stations: [],
 };
 
