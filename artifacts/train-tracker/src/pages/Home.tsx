@@ -1,23 +1,12 @@
-import { useEffect, useMemo } from "react";
 import { Activity, ArrowLeft, TrainFront } from "lucide-react";
 import { Link } from "wouter";
-import {
-  formatShortDate,
-  fromApiDate,
-  getUpcomingDates,
-  pickDefaultRunDate,
-  toApiDate,
-} from "@workspace/trains-data";
 import { InvertToggle } from "../components/invert-toggle";
 import { RecentChips } from "../components/recent-chips";
-import { RunSelector, type RunTab } from "../components/run-selector";
-import { SearchBox } from "../components/search-box";
-import { StatusView } from "../components/status-view";
+import { JourneyView } from "@/features/journey/journey-view";
+import { SearchBox } from "@/features/search/search-box";
 import { useRecentSearches } from "../hooks/use-recent-searches";
 import { useTrainCatalog } from "../hooks/use-train-catalog";
-import { useTrainRuns } from "../hooks/use-train-runs";
 import { useTrainSearch } from "../hooks/use-train-search";
-import { useTrainStatus } from "../hooks/use-train-status";
 
 export default function Home() {
   const { recent, addRecent } = useRecentSearches();
@@ -31,78 +20,10 @@ export default function Home() {
     setSelected,
     searched,
     apiParams,
-    setDepartureDate,
-    userPickedDate,
-    selectDate,
     handleSubmit,
     handleSelectRecent,
     reset,
   } = useTrainSearch({ trains, addRecent });
-
-  const { runs, isError: runsError } = useTrainRuns(
-    searched ? apiParams.train_number : null,
-  );
-
-  // Once the train's runs are known, land on a run date: today when the train
-  // runs today, otherwise the most recent past run (or the next run). Never
-  // overrides a date the user picked manually.
-  useEffect(() => {
-    if (!searched || userPickedDate) return;
-    const recommended =
-      runs && runs.length > 0 ? pickDefaultRunDate(runs) : null;
-    if (recommended && recommended !== apiParams.departure_date) {
-      setDepartureDate(recommended);
-    }
-  }, [searched, userPickedDate, runs, apiParams.departure_date, setDepartureDate]);
-
-  // Run tabs come exclusively from the train's run dates: the previous 2 runs
-  // before today, the current run (today when it runs today), and the next
-  // run. A day the train does not run on can never appear here.
-  const dates = useMemo<RunTab[]>(() => {
-    if (!runs || runs.length === 0) return [];
-    const todayApi = toApiDate(getUpcomingDates(1)[0]);
-    const past = runs.filter((r) => r <= todayApi);
-    const future = runs.filter((r) => r > todayApi);
-    const windowApi = [
-      ...past.slice(Math.max(0, past.length - 3)),
-      ...future.slice(0, 1),
-    ];
-    const currentRunApi = past.length ? past[past.length - 1] : null;
-    const nextRunApi = future[0] ?? null;
-
-    return windowApi.map((apiDate) => {
-      const isCurrent = apiDate === currentRunApi;
-      const isNext = apiDate === nextRunApi;
-      const iso = fromApiDate(apiDate);
-      return {
-        apiDate,
-        iso,
-        label: isCurrent
-          ? "Today"
-          : isNext
-            ? "Next"
-            : formatShortDate(iso),
-        sub: isCurrent || isNext ? formatShortDate(iso) : undefined,
-      };
-    });
-  }, [runs]);
-
-  // The running-status query must never target a day the train does not run
-  // on. While run dates are still loading it is held; when discovery failed
-  // or returned no schedule we fail open on the selected date.
-  const runsKnown = runs !== undefined;
-  const statusEnabled =
-    searched &&
-    (runsError ||
-      (runsKnown &&
-        (runs.length === 0 ||
-          runs.includes(apiParams.departure_date))));
-
-  const status = useTrainStatus(
-    searched ? apiParams : null,
-    statusEnabled,
-  );
-  const data = status.data;
 
   if (!searched) {
     return (
@@ -132,10 +53,7 @@ export default function Home() {
         <main className="w-full flex-1">
           <div className="mx-auto max-w-3xl px-4 pb-6 pt-10">
             <div className="text-center">
-              <h1
-                className="text-3xl font-bold"
-                data-testid="search-title"
-              >
+              <h1 className="text-3xl font-bold" data-testid="search-title">
                 Track Your Train
               </h1>
               <p className="mt-2 text-muted-foreground">
@@ -199,13 +117,8 @@ export default function Home() {
               className="block truncate font-mono text-base font-semibold"
               data-testid="header-train-number"
             >
-              {data?.train_number ?? apiParams.train_number}
+              {apiParams.train_number}
             </span>
-            {data && (
-              <span className="hidden text-xs text-primary-foreground/80 sm:block">
-                {data.source_station_code} → {data.destination_station_code}
-              </span>
-            )}
           </div>
           <Link
             href="/monitoring"
@@ -221,16 +134,7 @@ export default function Home() {
 
       <main className="w-full flex-1">
         <div className="mx-auto max-w-3xl px-4 py-6">
-          {dates.length > 0 && (
-            <div className="mb-4">
-              <RunSelector
-                dates={dates}
-                active={apiParams.departure_date}
-                onChange={selectDate}
-              />
-            </div>
-          )}
-          <StatusView result={status} />
+          <JourneyView trainNumber={apiParams.train_number} />
         </div>
       </main>
     </div>

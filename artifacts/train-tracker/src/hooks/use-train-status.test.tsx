@@ -35,6 +35,7 @@ const RESPONSE: TrainStatusResponse = {
   current_delay_minutes: 10,
   status_message: "Running late by 10 minutes",
   last_updated: "2026-08-01T12:00:00Z",
+  provider: "paytm",
   stations: [],
 };
 

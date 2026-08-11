@@ -41,6 +41,15 @@
   --color-brand-soft: hsl(var(--brand-soft));
   --color-brand-foreground: hsl(var(--brand-foreground));
 
+  --color-on-time: hsl(var(--on-time));
+  --color-on-time-fg: hsl(var(--on-time-fg));
+  --color-late: hsl(var(--late));
+  --color-late-fg: hsl(var(--late-fg));
+  --color-cancelled: hsl(var(--cancelled));
+  --color-cancelled-fg: hsl(var(--cancelled-fg));
+  --color-stale: hsl(var(--stale));
+  --color-stale-fg: hsl(var(--stale-fg));
+
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo,
     monospace;
@@ -49,6 +58,13 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 6px);
+}
+
+@theme static {
+  --motion-fast: 150ms;
+  --motion-base: 250ms;
+  --motion-slow: 400ms;
+  --motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /*
@@ -77,7 +93,7 @@
   --secondary-foreground: 0 0% 24%;
 
   --muted: 0 0% 94%;
-  --muted-foreground: 0 0% 42%;
+  --muted-foreground: 0 0% 46%;
 
   --accent: 0 0% 88%;
   --accent-foreground: 0 0% 12%;
@@ -90,6 +106,15 @@
 
   --success: 142 60% 38%;
   --success-foreground: 0 0% 100%;
+
+  --on-time: 142 64% 30%;
+  --on-time-fg: 0 0% 100%;
+  --late: 32 95% 33%;
+  --late-fg: 0 0% 100%;
+  --cancelled: 0 72% 40%;
+  --cancelled-fg: 0 0% 100%;
+  --stale: 240 8% 42%;
+  --stale-fg: 0 0% 100%;
 
   --brand: 0 0% 12%;
   --brand-strong: 0 0% 25%;
@@ -122,7 +147,7 @@ html.inverted {
   --secondary-foreground: 0 0% 85%;
 
   --muted: 0 0% 18%;
-  --muted-foreground: 0 0% 62%;
+  --muted-foreground: 0 0% 68%;
 
   --accent: 0 0% 22%;
   --accent-foreground: 0 0% 92%;
@@ -135,6 +160,15 @@ html.inverted {
 
   --success: 142 60% 32%;
   --success-foreground: 0 0% 100%;
+
+  --on-time: 142 64% 31%;
+  --on-time-fg: 0 0% 100%;
+  --late: 32 95% 35%;
+  --late-fg: 0 0% 100%;
+  --cancelled: 0 72% 48%;
+  --cancelled-fg: 0 0% 100%;
+  --stale: 240 8% 46%;
+  --stale-fg: 0 0% 100%;
 
   --brand: 0 0% 92%;
   --brand-strong: 0 0% 75%;
@@ -152,5 +186,61 @@ html.inverted {
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--card-border)),
+    transparent
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep var(--motion-slow) var(--motion-easing) infinite;
+  animation-delay: 200ms;
+}
+
+[data-skip-link] {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 50;
+  transform: translateY(-150%);
+  border-radius: var(--radius-md);
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.2);
+  transition: transform var(--motion-fast) var(--motion-easing);
+}
+
+[data-skip-link]:focus {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton-shimmer {
+    background-image: none;
   }
 }

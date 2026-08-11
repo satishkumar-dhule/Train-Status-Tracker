@@ -5,96 +5,71 @@ import {
   Play,
   RefreshCw,
 } from "lucide-react";
-import type { ProviderHealth, ProbeResult } from "../lib/api-monitoring";
+import { Button, Card, Label, Pill, Stat } from "@/components/primitives";
+import type { PillVariant } from "@/components/primitives";
+import type { MonitoringResult } from "@/hooks/use-api-monitoring";
+import type {
+  OverallStatus,
+  ProbeStatus,
+  ProbeResult,
+  ProviderHealth,
+} from "@/lib/api-monitoring";
+import { MONITOR_POLL_INTERVAL_MS } from "@/lib/api-monitoring";
 import {
-  MONITOR_POLL_INTERVAL_MS,
   formatBytes,
   formatLatency,
   formatRelativeTime,
   formatStatusCode,
   formatUptime,
-} from "../lib/api-monitoring";
-import type { MonitoringResult } from "../hooks/use-api-monitoring";
-import { cn } from "../lib/utils";
+} from "@/lib/format";
+import { cn } from "@/lib/utils";
 
-const STATUS_STYLES = {
-  ok: "bg-success/10 text-success border-success/30",
-  degraded: "bg-warning/10 text-warning border-warning/30",
-  down: "bg-destructive/10 text-destructive border-destructive/30",
-  pending: "bg-muted text-muted-foreground border-border",
-} as const;
+type MonitorStatus = ProbeStatus | "pending";
 
-const OVERALL_LABELS = {
+const PILL_VARIANTS: Record<MonitorStatus, PillVariant> = {
+  ok: "on-time",
+  degraded: "late",
+  down: "cancelled",
+  pending: "neutral",
+};
+
+const OVERALL_LABELS: Record<OverallStatus, string> = {
   ok: "OK",
   degraded: "DEGRADED",
   down: "DOWN",
   pending: "PENDING",
-} as const;
+};
 
 function StatusPill({
   status,
   testId,
   pulse = false,
 }: {
-  status: keyof typeof STATUS_STYLES;
+  status: MonitorStatus;
   testId?: string;
   pulse?: boolean;
 }) {
   return (
-    <span
-      data-testid={testId}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-xs font-bold uppercase tracking-widest",
-        STATUS_STYLES[status],
-      )}
+    <Pill
+      variant={PILL_VARIANTS[status]}
+      testId={testId}
+      icon={
+        pulse && status !== "pending" ? (
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full bg-current",
+              status !== "down" && "animate-pulse",
+            )}
+            aria-hidden
+          />
+        ) : undefined
+      }
     >
-      {pulse && status !== "pending" && (
-        <span
-          className={cn(
-            "h-1.5 w-1.5 rounded-full bg-current",
-            status !== "down" && "animate-pulse",
-          )}
-          aria-hidden
-        />
-      )}
       {OVERALL_LABELS[status]}
-    </span>
+    </Pill>
   );
 }
 
-function Stat({
-  label,
-  value,
-  testId,
-  tone,
-}: {
-  label: string;
-  value: React.ReactNode;
-  testId?: string;
-  tone?: "success" | "warning" | "destructive" | "muted";
-}) {
-  return (
-    <div className="min-w-0 rounded-xl border border-card-border bg-card p-3">
-      <div className="truncate font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        {label}
-      </div>
-      <div
-        data-testid={testId}
-        className={cn(
-          "mt-1 truncate font-mono text-base font-bold text-foreground",
-          tone === "success" && "text-success",
-          tone === "warning" && "text-warning",
-          tone === "destructive" && "text-destructive",
-          tone === "muted" && "text-muted-foreground",
-        )}
-      >
-        {value ?? "--"}
-      </div>
-    </div>
-  );
-}
-
-/** Tiny inline latency sparkline: one point per completed probe cycle. */
 function Sparkline({
   samples,
   tone,
@@ -150,12 +125,9 @@ function probeTone(probe: ProbeResult): "success" | "warning" | "destructive" {
 function EndpointTable({ result }: { result: MonitoringResult }) {
   const probes = result.snapshot?.results ?? [];
   return (
-    <div
-      className="overflow-hidden rounded-xl border border-card-border bg-card"
-      data-testid="monitoring-endpoints"
-    >
-      <div className="border-b border-card-border px-4 py-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        Endpoints
+    <Card padding="none" data-testid="monitoring-endpoints">
+      <div className="border-b border-card-border px-4 py-3">
+        <Label>Endpoints</Label>
       </div>
       <ul className="divide-y divide-card-border">
         {probes.map((probe) => (
@@ -180,19 +152,19 @@ function EndpointTable({ result }: { result: MonitoringResult }) {
             <span className="hidden font-mono text-xs tabular-nums text-muted-foreground sm:block">
               {formatStatusCode(probe.statusCode)}
             </span>
-            <span
-              className="hidden font-mono text-xs tabular-nums sm:block"
-              data-testid={`monitoring-latency-${probe.id}`}
-            >
-              {formatLatency(probe.latencyMs)}
-            </span>
             <span className="hidden font-mono text-xs tabular-nums text-muted-foreground sm:block">
               {formatBytes(probe.payloadBytes)}
             </span>
             <span className="hidden font-mono text-xs tabular-nums text-muted-foreground sm:block">
               {formatRelativeTime(probe.completedAt)}
             </span>
-            <div className="hidden justify-end sm:flex">
+            <div className="hidden items-center justify-end gap-2 sm:flex">
+              <span
+                className="font-mono text-xs tabular-nums"
+                data-testid={`monitoring-latency-${probe.id}`}
+              >
+                {formatLatency(probe.latencyMs)}
+              </span>
               <Sparkline
                 samples={result.history[probe.id] ?? []}
                 tone={probeTone(probe)}
@@ -202,7 +174,7 @@ function EndpointTable({ result }: { result: MonitoringResult }) {
           </li>
         ))}
       </ul>
-    </div>
+    </Card>
   );
 }
 
@@ -212,19 +184,16 @@ function formatRate(fraction: number): string {
 
 function ProviderCard({ provider }: { provider: ProviderHealth }) {
   return (
-    <div
-      className="min-w-0 rounded-xl border border-card-border bg-card p-3"
-      data-testid={`monitoring-provider-${provider.name}`}
-    >
+    <Card padding="sm" data-testid={`monitoring-provider-${provider.name}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-mono text-sm font-bold tracking-wider">
           {provider.name}
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
           {!provider.available && (
-            <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <Pill variant="neutral" size="sm">
               SKIPPED
-            </span>
+            </Pill>
           )}
           <StatusPill status={provider.status} />
         </div>
@@ -264,11 +233,14 @@ function ProviderCard({ provider }: { provider: ProviderHealth }) {
         </div>
       </dl>
       {provider.lastError && (
-        <p className="mt-2 truncate font-mono text-[10px] text-destructive" title={provider.lastError}>
+        <p
+          className="mt-2 truncate font-mono text-[10px] text-destructive"
+          title={provider.lastError}
+        >
           {provider.lastError}
         </p>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -280,13 +252,11 @@ function ProvidersPanel({
   if (providers === null) return null;
   return (
     <div data-testid="monitoring-providers">
-      <div className="mb-3 font-mono text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-        Provider failover
-      </div>
+      <Label className="mb-3 block">Provider failover</Label>
       {providers.length === 0 ? (
-        <p className="rounded-xl border border-card-border bg-card p-4 text-sm text-muted-foreground">
+        <Card className="text-sm text-muted-foreground">
           No provider data yet.
-        </p>
+        </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {providers.map((provider) => (
@@ -300,24 +270,21 @@ function ProvidersPanel({
 
 function LoadingState() {
   return (
-    <div
-      className="flex flex-col items-center gap-3 rounded-xl border border-card-border bg-card p-10 text-center"
+    <Card
+      className="flex flex-col items-center gap-3 p-10 text-center"
       data-testid="monitoring-loading"
     >
-      <Activity className="h-6 w-6 animate-pulse text-muted-foreground" aria-hidden />
+      <Activity
+        className="h-6 w-6 animate-pulse text-muted-foreground"
+        aria-hidden
+      />
       <p className="font-mono text-sm uppercase tracking-widest text-muted-foreground">
         Gathering telemetry…
       </p>
-    </div>
+    </Card>
   );
 }
 
-/**
- * The monitoring deep module: overall status, endpoint probe table, and the
- * per-provider failover panel. Given a `MonitoringResult` it renders every
- * state — loading, live, paused — the page just calls the hook and hands the
- * result over.
- */
 export function MonitoringView({ result }: { result: MonitoringResult }) {
   const { snapshot, summary, isPolling, isPaused, togglePaused, refresh } =
     result;
@@ -331,10 +298,7 @@ export function MonitoringView({ result }: { result: MonitoringResult }) {
 
   return (
     <div className="space-y-4">
-      <div
-        className="rounded-xl border border-card-border bg-card p-4"
-        data-testid="monitoring-summary"
-      >
+      <Card data-testid="monitoring-summary">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <StatusPill
@@ -356,11 +320,11 @@ export function MonitoringView({ result }: { result: MonitoringResult }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="md"
               onClick={togglePaused}
               data-testid="monitoring-pause"
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-card-border px-3 font-mono text-xs font-semibold uppercase tracking-widest"
             >
               {isPaused ? (
                 <Play className="h-3.5 w-3.5" aria-hidden />
@@ -368,20 +332,17 @@ export function MonitoringView({ result }: { result: MonitoringResult }) {
                 <Pause className="h-3.5 w-3.5" aria-hidden />
               )}
               {isPaused ? "Resume" : "Pause"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
+              size="md"
               onClick={refresh}
               disabled={isPolling}
               data-testid="monitoring-refresh"
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-card-border px-3 font-mono text-xs font-semibold uppercase tracking-widest disabled:opacity-50"
             >
-              <RefreshCw
-                className={cn("h-3.5 w-3.5", isPolling && "animate-spin")}
-                aria-hidden
-              />
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
               Refresh
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -393,18 +354,16 @@ export function MonitoringView({ result }: { result: MonitoringResult }) {
           />
           <Stat
             label="Avg latency"
-            value={formatLatency(summary.avgLatencyMs ?? 0)}
+            value={formatLatency(summary.avgLatencyMs)}
           />
           <Stat
             label="Max latency"
-            value={formatLatency(summary.maxLatencyMs ?? 0)}
+            value={formatLatency(summary.maxLatencyMs)}
           />
           <Stat
             label="Last checked"
             value={
-              snapshot
-                ? formatRelativeTime(snapshot.generatedAt)
-                : undefined
+              snapshot ? formatRelativeTime(snapshot.generatedAt) : undefined
             }
             testId="monitoring-last-checked"
           />
@@ -445,7 +404,7 @@ export function MonitoringView({ result }: { result: MonitoringResult }) {
             testId="monitoring-catalog"
           />
         </div>
-      </div>
+      </Card>
 
       {snapshot && <EndpointTable result={result} />}
 

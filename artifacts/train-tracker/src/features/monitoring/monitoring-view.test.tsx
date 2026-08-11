@@ -7,8 +7,8 @@ import type {
   ProbeId,
   ProbeResult,
   ProviderHealth,
-} from "../lib/api-monitoring";
-import type { MonitoringResult } from "../hooks/use-api-monitoring";
+} from "@/lib/api-monitoring";
+import type { MonitoringResult } from "@/hooks/use-api-monitoring";
 import { MonitoringView } from "./monitoring-view";
 
 function makeProbe(overrides: Partial<ProbeResult>): ProbeResult {
@@ -181,6 +181,32 @@ describe("MonitoringView", () => {
     );
   });
 
+  it("shows the outage banner when the overall status is degraded", () => {
+    const snapshot = makeSnapshot([
+      ...PROBE_IDS.filter((id) => id !== "search" && id !== "runs").map(
+        (id, index) => makeProbe({ id, latencyMs: 10 + index }),
+      ),
+      makeProbe({ id: "search", status: "degraded", statusCode: 400 }),
+      makeProbe({ id: "runs", status: "down", statusCode: null, error: "Network or timeout error" }),
+    ]);
+    render(
+      <MonitoringView
+        result={makeResult({
+          snapshot,
+          summary: {
+            overall: "degraded", ok: 4, degraded: 1, down: 1, total: 6,
+            successRate: 4 / 6, avgLatencyMs: 10, maxLatencyMs: 12,
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("monitoring-overall")).toHaveTextContent("DEGRADED");
+    expect(screen.getByTestId("monitoring-outage")).toHaveTextContent(
+      "1 of 6 endpoints unreachable",
+    );
+  });
+
   it("renders the health, version, uptime, redis, catalog, and success-rate stats", () => {
     render(<MonitoringView result={makeResult({})} />);
 
@@ -192,6 +218,22 @@ describe("MonitoringView", () => {
       "14,032 trains",
     );
     expect(screen.getByTestId("monitoring-success-rate")).toHaveTextContent("6/6");
+  });
+
+  it("prints the formatted latency beside each probe sparkline", () => {
+    render(<MonitoringView result={makeResult({})} />);
+
+    for (const id of PROBE_IDS) {
+      const row = screen.getByTestId(`monitoring-row-${id}`);
+      const latency = screen.getByTestId(`monitoring-latency-${id}`);
+      const sparkline = screen.getByTestId(`monitoring-sparkline-${id}`);
+      expect(row).toContainElement(latency);
+      expect(row).toContainElement(sparkline);
+      expect(latency).toHaveTextContent("ms");
+    }
+    expect(screen.getByTestId("monitoring-latency-health")).toHaveTextContent(
+      "10 ms",
+    );
   });
 
   it("renders provider cards including skipped providers and last errors", () => {
@@ -252,6 +294,11 @@ describe("MonitoringView", () => {
 
     await user.click(screen.getByTestId("monitoring-pause"));
     expect(result.togglePaused).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables refresh while a poll cycle is in flight", () => {
+    render(<MonitoringView result={makeResult({ isPolling: true })} />);
+    expect(screen.getByTestId("monitoring-refresh")).toBeDisabled();
   });
 
   it("shows a paused live badge when polling is paused", () => {

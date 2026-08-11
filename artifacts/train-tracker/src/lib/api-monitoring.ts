@@ -350,45 +350,13 @@ export function summarizeProbes(results: readonly ProbeResult[]): MonitoringSumm
 }
 
 // ---------------------------------------------------------------------------
-// Formatters
+// Formatters (re-exported from the consolidated format module)
 // ---------------------------------------------------------------------------
 
-/** 12 -> "12 ms"; 1_234 -> "1.2 s" */
-export function formatLatency(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "--";
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
-}
-
-/** 892 -> "892 B"; 65_536 -> "64 KB"; 1_500_000 -> "1.4 MB" */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "--";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** 86_400 -> "1d"; 7_200 -> "2h"; 3_600 -> "1h 0m" */
-export function formatUptime(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "--";
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m ${Math.floor(totalSeconds % 60)}s`;
-}
-
-/** 200 -> "200"; 404 -> "404"; null -> "ERR" */
-export function formatStatusCode(statusCode: number | null): string {
-  return statusCode === null ? "ERR" : String(statusCode);
-}
-
-/** msSinceEpoch -> "just now" / "12s ago" / "3m ago" */
-export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
-  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3_600)}h ago`;
-}
+export {
+  formatLatency,
+  formatBytes,
+  formatUptime,
+  formatStatusCode,
+  formatRelativeTime,
+} from "@/lib/format";

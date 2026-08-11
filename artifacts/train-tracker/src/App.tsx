@@ -37,8 +37,18 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <RecentSearchesProvider>
+        <a
+          href="#main"
+          data-skip-link
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2 focus:text-foreground"
+          aria-label="Skip to content"
+        >
+          Skip to content
+        </a>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <div id="main" tabIndex={-1}>
+            <Router />
+          </div>
         </WouterRouter>
       </RecentSearchesProvider>
     </QueryClientProvider>

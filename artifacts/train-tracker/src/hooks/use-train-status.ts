@@ -3,7 +3,10 @@ import {
   getGetTrainStatusQueryKey,
   useGetTrainStatus,
 } from "@workspace/api-client-react";
-import type { TrainStatusResponse } from "@workspace/api-client-react";
+import type {
+  GetTrainStatusProvider,
+  TrainStatusResponse,
+} from "@workspace/api-client-react";
 import {
   STATUS_CACHE_GC_BUFFER_MS,
   getStatusCacheTtlMs,
@@ -19,6 +22,13 @@ import {
  * cache and never hit the backend API.
  */
 const STATUS_CACHE_TTL_MS = getStatusCacheTtlMs();
+
+/** What the status query is asked for. `provider` pins a single gateway. */
+export type TrainStatusQueryParams = {
+  train_number: string;
+  departure_date: string;
+  provider?: GetTrainStatusProvider;
+};
 
 /** Why a status query failed, when it failed. */
 export type TrainStatusErrorType = "not-found" | "provider" | "network";
@@ -43,7 +53,7 @@ export interface TrainStatusResult {
 }
 
 export function useTrainStatus(
-  params: { train_number: string; departure_date: string } | null,
+  params: TrainStatusQueryParams | null,
   enabled?: boolean,
 ): TrainStatusResult {
   const query = useGetTrainStatus(

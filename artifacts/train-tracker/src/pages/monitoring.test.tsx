@@ -16,7 +16,7 @@ vi.mock("../hooks/use-api-monitoring", () => ({
   useApiMonitoring: mocks.useApiMonitoring,
 }));
 
-vi.mock("../components/monitoring-view", () => ({
+vi.mock("@/features/monitoring/monitoring-view", () => ({
   MonitoringView: mocks.monitoringView,
 }));
 

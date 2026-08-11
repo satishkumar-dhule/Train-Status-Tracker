@@ -4,8 +4,9 @@ import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { TrainEntry } from "@workspace/trains-data";
-import type { TrainValidationState } from "../lib/validation";
-import { RecentSearchesProvider } from "../context/recent-searches";
+import type { TrainValidationState } from "@/lib/validation";
+import { RECENT_SEARCHES_STORAGE_KEY } from "@/lib/recent-searches";
+import { RecentSearchesProvider } from "@/context/recent-searches";
 import { SearchBox } from "./search-box";
 
 const CATALOG: TrainEntry[] = [
@@ -13,7 +14,12 @@ const CATALOG: TrainEntry[] = [
   { number: "12951", name: "Mumbai Rajdhani Express" },
 ];
 
-vi.mock("../hooks/use-train-catalog", () => ({
+const RECENTS: TrainEntry[] = [
+  { number: "12951", name: "Mumbai Rajdhani Express" },
+  { number: "22943", name: "Indore Intercity SF Express" },
+];
+
+vi.mock("@/hooks/use-train-catalog", () => ({
   useTrainCatalog: () => ({ trains: CATALOG, isLoading: false, isError: false }),
 }));
 
@@ -74,7 +80,7 @@ describe("SearchBox", () => {
     expect(screen.getByTestId("input-train-number")).toHaveValue("22943");
   });
 
-  it("marks a valid train as valid and submits on Enter", async () => {
+  it("submits on Enter for a valid train and marks it valid", async () => {
     const user = userEvent.setup();
     const handlers = renderSearchBox();
 
@@ -85,14 +91,30 @@ describe("SearchBox", () => {
     expect(handlers.onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("shows an error for an unknown number and does not submit", async () => {
+  it("does not nag while typing an unknown number, then errors on submit", async () => {
     const user = userEvent.setup();
     const handlers = renderSearchBox();
 
     await user.type(screen.getByTestId("input-train-number"), "99999");
 
+    expect(
+      screen.queryByTestId("error-train-number"),
+    ).not.toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+
     expect(await screen.findByTestId("error-train-number")).toBeInTheDocument();
     expect(handlers.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits via the button when valid", async () => {
+    const user = userEvent.setup();
+    const handlers = renderSearchBox();
+
+    await user.type(screen.getByTestId("input-train-number"), "12951");
+    await user.click(screen.getByTestId("submit-train-search"));
+
+    expect(handlers.onSubmit).toHaveBeenCalledTimes(1);
   });
 
   it("clears the input via the clear button", async () => {
@@ -107,13 +129,59 @@ describe("SearchBox", () => {
     expect(screen.getByTestId("input-train-number")).toHaveValue("");
   });
 
-  it("submits via the button when valid", async () => {
+  it("announces the suggestion count in a live region", async () => {
+    const user = userEvent.setup();
+    renderSearchBox();
+
+    await user.type(screen.getByTestId("input-train-number"), "2294");
+
+    expect(screen.getByTestId("search-results-count")).toBeInTheDocument();
+  });
+});
+
+describe("SearchBox recents in dropdown", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(RECENTS));
+    HTMLElement.prototype.scrollIntoView = () => {};
+  });
+
+  it("shows recents when the input is empty and focused", async () => {
+    const user = userEvent.setup();
+    renderSearchBox();
+
+    await user.click(screen.getByTestId("input-train-number"));
+
+    expect(screen.getByTestId("search-recents")).toBeInTheDocument();
+    expect(screen.getByTestId("recent-row-12951")).toBeInTheDocument();
+    expect(screen.getByTestId("recent-row-22943")).toBeInTheDocument();
+  });
+
+  it("swaps recents for catalog suggestions once typing starts, and back on clear", async () => {
+    const user = userEvent.setup();
+    renderSearchBox();
+
+    await user.click(screen.getByTestId("input-train-number"));
+    expect(screen.getByTestId("recent-row-12951")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("input-train-number"), "22");
+
+    expect(screen.queryByTestId("recent-row-12951")).not.toBeInTheDocument();
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    await user.clear(screen.getByTestId("input-train-number"));
+
+    expect(screen.getByTestId("recent-row-12951")).toBeInTheDocument();
+  });
+
+  it("selecting a recent row reports the train and fills the input", async () => {
     const user = userEvent.setup();
     const handlers = renderSearchBox();
 
-    await user.type(screen.getByTestId("input-train-number"), "12951");
-    await user.click(screen.getByTestId("submit-train-search"));
+    await user.click(screen.getByTestId("input-train-number"));
+    await user.click(screen.getByTestId("recent-row-22943"));
 
-    expect(handlers.onSubmit).toHaveBeenCalledTimes(1);
+    expect(handlers.onSelectedChange).toHaveBeenCalledWith(CATALOG[0]);
+    expect(screen.getByTestId("input-train-number")).toHaveValue("22943");
   });
 });

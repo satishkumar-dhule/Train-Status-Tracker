@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
 import { InvertToggle } from "../components/invert-toggle";
-import { MonitoringView } from "../components/monitoring-view";
+import { MonitoringView } from "@/features/monitoring/monitoring-view";
 import { useApiMonitoring } from "../hooks/use-api-monitoring";
 
 export default function Monitoring() {
