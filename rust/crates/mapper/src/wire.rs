@@ -23,6 +23,7 @@ pub fn to_wire_status(status: &MappedStatus) -> TrainStatusResponse {
         current_delay_minutes: status.current_delay_minutes,
         status_message: status.status_message.clone(),
         last_updated: status.last_updated.clone(),
+        provider: status.provider.clone(),
         stations: status.stations.iter().map(to_wire_station).collect(),
     }
 }

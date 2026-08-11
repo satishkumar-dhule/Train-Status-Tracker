@@ -320,6 +320,7 @@ mod train_status_response {
         r#""destination_station_code":"","destination_station_name":"","#,
         r#""current_station_code":null,"current_station_name":null,"#,
         r#""current_delay_minutes":null,"status_message":null,"last_updated":null,"#,
+        r#""provider":"paytm","#,
         r#""stations":[]}"#,
     );
 
@@ -333,6 +334,7 @@ mod train_status_response {
         r#""current_station_code":"NDLS","current_station_name":"New Delhi","#,
         r#""current_delay_minutes":20,"status_message":"Running on time","#,
         r#""last_updated":"2026-08-05T12:00:00Z","#,
+        r#""provider":"paytm","#,
         r#""stations":[{"station_code":"NDLS","station_name":"New Delhi","#,
         r#""scheduled_arrival":"08:00","actual_arrival":"08:20","#,
         r#""scheduled_departure":"08:05","actual_departure":"08:25","#,
@@ -389,6 +391,7 @@ mod train_status_response {
             r#""current_station_code":"NDLS","current_station_name":"New Delhi","#,
             r#""current_delay_minutes":0,"status_message":"Running on time","#,
             r#""last_updated":"2026-08-02T08:20:00+05:30","#,
+            r#""provider":"paytm","#,
             r#""stations":["#,
             r#"{"station_code":"ADI","station_name":"Ahmedabad Jn","has_departed":true,"#,
             r#""is_current":false,"day":1,"scheduled_arrival":null,"scheduled_departure":"23:00","#,
@@ -406,6 +409,7 @@ mod train_status_response {
             r#""current_station_code":"NDLS","current_station_name":"New Delhi","#,
             r#""current_delay_minutes":0,"status_message":"Running on time","#,
             r#""last_updated":"2026-08-02T08:20:00+05:30","#,
+            r#""provider":"paytm","#,
             r#""stations":["#,
             r#"{"station_code":"ADI","station_name":"Ahmedabad Jn","scheduled_arrival":null,"#,
             r#""actual_arrival":null,"scheduled_departure":"23:00","actual_departure":"23:00","#,

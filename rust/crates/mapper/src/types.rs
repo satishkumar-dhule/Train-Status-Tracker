@@ -39,6 +39,9 @@ pub struct MappedStatus {
     pub current_delay_minutes: Option<i64>,
     pub status_message: Option<String>,
     pub last_updated: Option<String>,
+    /// The data source ("gateway") that served this status (e.g. "paytm",
+    /// "goibibo"). Blank until the orchestrator stamps the serving provider.
+    pub provider: String,
     pub stations: Vec<MappedStation>,
 }
 

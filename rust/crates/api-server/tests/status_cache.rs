@@ -175,6 +175,7 @@ fn mapped_fixture() -> MappedStatus {
         current_delay_minutes: Some(35),
         status_message: Some("Running on time".to_string()),
         last_updated: Some("2026-08-02T08:20:00+05:30".to_string()),
+        provider: "paytm".to_string(),
         stations: vec![MappedStation {
             station_code: "ADI".to_string(),
             station_name: "Ahmedabad Jn".to_string(),

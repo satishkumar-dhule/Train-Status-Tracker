@@ -23,6 +23,7 @@ fn mapped_status(train_name: &str) -> MappedStatus {
         current_delay_minutes: None,
         status_message: None,
         last_updated: None,
+        provider: String::new(),
         stations: Vec::new(),
     }
 }
@@ -242,6 +243,58 @@ async fn throws_upstream_when_no_providers_are_enabled() {
         }
         other => panic!("expected upstream error, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn stamps_the_serving_provider_name_on_the_result() {
+    let a = Arc::new(FakeProvider::ok("a"));
+
+    let status = failover(vec![a], FailoverOptions::default())
+        .await
+        .expect("ok");
+    assert_eq!(status.train_name, "from a");
+    assert_eq!(status.provider, "a");
+}
+
+#[tokio::test]
+async fn consults_only_the_pinned_provider_even_when_others_are_available() {
+    let paytm = Arc::new(FakeProvider::upstream("paytm"));
+    let goibibo = Arc::new(FakeProvider::ok("goibibo"));
+
+    let options = FailoverOptions {
+        pinned_provider: Some("goibibo".to_string()),
+        ..FailoverOptions::default()
+    };
+    let status = failover(vec![paytm.clone(), goibibo.clone()], options)
+        .await
+        .expect("ok");
+    assert_eq!(status.train_name, "from goibibo");
+    assert_eq!(status.provider, "goibibo");
+    // The pin skips the failover chain entirely: the healthy Paytm upstream
+    // would have been consulted first, but must not be.
+    assert_eq!(paytm.call_count(), 0);
+    assert_eq!(goibibo.call_count(), 1);
+}
+
+#[tokio::test]
+async fn errors_when_the_pinned_provider_is_not_in_the_list() {
+    let a = Arc::new(FakeProvider::ok("a"));
+
+    let options = FailoverOptions {
+        pinned_provider: Some("ghost".to_string()),
+        ..FailoverOptions::default()
+    };
+    let result = failover(vec![a.clone()], options).await;
+    match result {
+        Err(ProviderError::Upstream {
+            provider, message, ..
+        }) => {
+            assert_eq!(provider, "ghost");
+            assert_eq!(message, "Train status provider \"ghost\" is not configured");
+        }
+        other => panic!("expected upstream error, got {other:?}"),
+    }
+    assert_eq!(a.call_count(), 0);
 }
 
 #[tokio::test]

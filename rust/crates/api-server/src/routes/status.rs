@@ -36,6 +36,17 @@ const NOT_FOUND_MESSAGE: &str = "Train not found or no data available";
 const UPSTREAM_MESSAGE: &str = "Could not reach train data provider";
 const INTERNAL_ERROR_MESSAGE: &str = "Internal server error";
 
+/// The `provider` param enum from the OpenAPI schema (`GetTrainStatusQueryParams`):
+/// every known upstream name, whether or not it is enabled in this deployment.
+const KNOWN_PROVIDERS: [&str; 6] = [
+    "paytm",
+    "goibibo",
+    "railyatri",
+    "whereismytrain",
+    "easemytrip",
+    "railradar",
+];
+
 /// The error-carried classification of a failed cache lookup. The L1 caches
 /// values only; failures travel through [`CacheError::message`] so
 /// single-flight waiters all see the same verdict.
@@ -75,6 +86,16 @@ pub(crate) async fn train_status(
         }
     }
 
+    // `provider` is optional, so only a repeated param is rejected here (the
+    // TS pushes an `invalid_type`/array issue for it ahead of `safeParse`).
+    let provider_occurrences = pairs.iter().filter(|(k, _)| k == "provider").count();
+    if provider_occurrences > 1 {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "provider: expected string, received array".to_string(),
+        );
+    }
+
     let value = |key: &str| {
         pairs
             .iter()
@@ -84,6 +105,7 @@ pub(crate) async fn train_status(
     };
     let train_number = value("train_number");
     let departure_date = value("departure_date");
+    let provider = value("provider");
 
     if !is_valid_train_number(&train_number) {
         return json_error(
@@ -97,6 +119,25 @@ pub(crate) async fn train_status(
             DEPARTURE_DATE_REGEX_MESSAGE.to_string(),
         );
     }
+
+    // The `provider` enum is validated by `safeParse` in the TS, before the
+    // real-calendar gate; replicate its message byte-for-byte.
+    let provider = if provider.is_empty() {
+        None
+    } else if KNOWN_PROVIDERS.contains(&provider.as_str()) {
+        Some(provider)
+    } else {
+        let expected = KNOWN_PROVIDERS
+            .iter()
+            .map(|name| format!("'{name}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            format!("provider: Invalid enum value. Expected {expected}, received '{provider}'"),
+        );
+    };
+
     if !is_valid_api_date(&departure_date) {
         return json_error(
             StatusCode::BAD_REQUEST,
@@ -104,12 +145,29 @@ pub(crate) async fn train_status(
         );
     }
 
+    // A pinned provider must be one that is enabled in this deployment; the
+    // enum above only covers the known upstream names.
+    if let Some(provider) = &provider {
+        let enabled = state.config.providers_enabled();
+        if !enabled.iter().any(|name| name == provider) {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                format!("provider must be one of: {}", enabled.join(", ")),
+            );
+        }
+    }
+
     let known_train = find_train_by_number(&TRAINS, &train_number).map(|train| KnownTrain {
         number: train.number.clone(),
         name: train.name.clone(),
     });
 
-    let cache_key = format!("{train_number}:{departure_date}");
+    // Pinned lookups are cached separately so a provider-specific result can
+    // never be served for the auto (failover) query or vice versa.
+    let cache_key = match &provider {
+        Some(provider) => format!("{provider}:{train_number}:{departure_date}"),
+        None => format!("{train_number}:{departure_date}"),
+    };
     let producer_key = cache_key.clone();
     let cache = state.status_l1.clone();
     let l2 = state.status_l2.clone();
@@ -135,6 +193,7 @@ pub(crate) async fn train_status(
                     known_train,
                     qos: Some(qos),
                     telemetry: Some(telemetry),
+                    pinned_provider: provider.clone(),
                     ..FailoverOptions::default()
                 };
                 match fetch_status_with_failover(

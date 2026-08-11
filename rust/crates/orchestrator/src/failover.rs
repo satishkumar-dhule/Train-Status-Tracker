@@ -33,6 +33,11 @@ pub struct FailoverOptions {
     /// Telemetry handle for the `app.provider.failover` counter. `None` =
     /// no metrics recorded (inert).
     pub telemetry: Option<Arc<Telemetry>>,
+    /// Pin the lookup to a single provider by name, skipping the failover
+    /// chain entirely (no other provider is consulted, whatever the QoS
+    /// state). The caller is responsible for pre-validating that the
+    /// provider is enabled.
+    pub pinned_provider: Option<String>,
 }
 
 /// Try each enabled provider in order until one returns a status.
@@ -51,18 +56,41 @@ pub async fn fetch_status_with_failover(
         .cloned()
         .collect();
 
+    // A pinned provider is consulted unconditionally — the user explicitly
+    // asked for it, so neither failover nor the circuit breaker may override
+    // it.
+    let pinned = options
+        .pinned_provider
+        .as_ref()
+        .and_then(|name| enabled.iter().find(|provider| provider.name() == name));
+
+    // Defense in depth: routes validate the pinned provider before calling,
+    // but never silently fall back to failover when a requested provider is
+    // absent.
+    if options.pinned_provider.is_some() && pinned.is_none() {
+        return Err(ProviderError::upstream(
+            options.pinned_provider.clone().unwrap_or_default(),
+            format!(
+                "Train status provider \"{}\" is not configured",
+                options.pinned_provider.clone().unwrap_or_default()
+            ),
+        ));
+    }
+
     let available: Vec<Arc<dyn TrainStatusProvider>> = enabled
         .iter()
         .filter(|provider| qos.is_available(provider.name(), now_ms))
         .cloned()
         .collect();
 
-    let to_consult: Vec<Arc<dyn TrainStatusProvider>> = if available.is_empty() {
-        // `enabled.slice(0, 1)` — the first provider, or an empty list when
-        // nothing is enabled (falls through to "no providers configured").
-        enabled[..1.min(enabled.len())].to_vec()
-    } else {
-        available
+    let to_consult: Vec<Arc<dyn TrainStatusProvider>> = match pinned {
+        Some(pinned) => vec![pinned.clone()],
+        None if available.is_empty() => {
+            // `enabled.slice(0, 1)` — the first provider, or an empty list when
+            // nothing is enabled (falls through to "no providers configured").
+            enabled[..1.min(enabled.len())].to_vec()
+        }
+        None => available,
     };
 
     for provider in &enabled {
@@ -92,7 +120,10 @@ pub async fn fetch_status_with_failover(
             )
             .await
         {
-            Ok(status) => {
+            Ok(mut status) => {
+                // Stamp the serving provider onto the payload (mirrors
+                // `{ ...status, provider: provider.name }` in the TS).
+                status.provider = provider.name().to_string();
                 qos.record(
                     provider.name(),
                     &QosRecord {

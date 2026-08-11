@@ -9,24 +9,37 @@
 
 use std::sync::Arc;
 
+use tt_provider_confirmtkt::create_confirmtkt_provider;
 use tt_provider_core::TrainStatusProvider;
 use tt_provider_easemytrip::create_easemytrip_provider;
+use tt_provider_erail::create_erail_provider;
+use tt_provider_etrain::create_etrain_provider;
 use tt_provider_goibibo::create_goibibo_provider;
 use tt_provider_http::HttpTransport;
+use tt_provider_indianrailapi::create_indianrailapi_provider;
+use tt_provider_ntes::create_ntes_provider;
 use tt_provider_paytm::create_paytm_provider;
+use tt_provider_railbeeps::create_railbeeps_provider;
+use tt_provider_railmitra::create_railmitra_provider;
 use tt_provider_railradar::create_railradar_provider;
 use tt_provider_railyatri::create_railyatri_provider;
+use tt_provider_redrail::create_redrail_provider;
+use tt_provider_runningstatus::create_runningstatus_provider;
+use tt_provider_trainspnrstatus::create_trainspnrstatus_provider;
 use tt_provider_wimt::create_whereismytrain_provider;
 
 /// Build the provider list in priority order. Unknown names and disabled
-/// providers (RailRadar without a key) are skipped silently, mirroring
-/// `buildStatusProviders` in `lib/providers/registry.ts`.
+/// providers (RailRadar without a key, IndianRailAPI without a key) are
+/// skipped silently, mirroring `buildStatusProviders` in
+/// `lib/providers/registry.ts`.
 pub fn build_status_providers(
     transport: Arc<dyn HttpTransport>,
     names: &[String],
     railradar_api_key: Option<&str>,
+    indianrailapi_api_key: Option<&str>,
 ) -> Vec<Arc<dyn TrainStatusProvider>> {
-    let api_key = railradar_api_key.map(str::to_string);
+    let railradar_key = railradar_api_key.map(str::to_string);
+    let indianrailapi_key = indianrailapi_api_key.map(str::to_string);
     let mut seen = std::collections::HashSet::new();
     let mut providers: Vec<Arc<dyn TrainStatusProvider>> = Vec::new();
     for name in names {
@@ -41,8 +54,21 @@ pub fn build_status_providers(
             "easemytrip" => Some(Arc::new(create_easemytrip_provider(transport.clone()))),
             "railradar" => Some(Arc::new(create_railradar_provider(
                 transport.clone(),
-                api_key.clone(),
+                railradar_key.clone(),
             ))),
+            "confirmtkt" => Some(Arc::new(create_confirmtkt_provider(transport.clone()))),
+            "redrail" => Some(Arc::new(create_redrail_provider(transport.clone()))),
+            "ntes" => Some(Arc::new(create_ntes_provider(transport.clone()))),
+            "indianrailapi" => Some(Arc::new(create_indianrailapi_provider(
+                transport.clone(),
+                indianrailapi_key.clone(),
+            ))),
+            "etrain" => Some(Arc::new(create_etrain_provider(transport.clone()))),
+            "erail" => Some(Arc::new(create_erail_provider(transport.clone()))),
+            "railmitra" => Some(Arc::new(create_railmitra_provider(transport.clone()))),
+            "runningstatus" => Some(Arc::new(create_runningstatus_provider(transport.clone()))),
+            "trainspnrstatus" => Some(Arc::new(create_trainspnrstatus_provider(transport.clone()))),
+            "railbeeps" => Some(Arc::new(create_railbeeps_provider(transport.clone()))),
             _ => None,
         };
         if let Some(provider) = provider {

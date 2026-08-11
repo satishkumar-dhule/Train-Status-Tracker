@@ -190,12 +190,44 @@ fn named_provider_serving(name: &str, body: Value) -> Arc<dyn TrainStatusProvide
     })
 }
 
-/// Like [`provider_serving_status`], but reporting `name` (see above).
+/// Like [`named_provider_serving_status`], but reporting `name` (see above).
 fn named_provider_serving_status(name: &str, status: u16) -> Arc<dyn TrainStatusProvider> {
     Arc::new(NamedProvider {
         name: name.to_string(),
         inner: provider_serving_status(status),
     })
+}
+
+/// A provider named `name` over its own mock, serving `body` on every request.
+/// Returns the provider plus the mock so tests can assert the request log.
+fn named_provider_with_mock(
+    name: &str,
+    body: Value,
+) -> (Arc<dyn TrainStatusProvider>, Arc<MockTransport>) {
+    let mut mock = MockTransport::new();
+    mock.push_json(STATUS_PATH, &body);
+    let mock = Arc::new(mock);
+    let provider: Arc<dyn TrainStatusProvider> = Arc::new(NamedProvider {
+        name: name.to_string(),
+        inner: Arc::new(create_paytm_provider(mock.clone())),
+    });
+    (provider, mock)
+}
+
+/// Like [`named_provider_with_mock`], but every request fails with the given
+/// canned non-2xx status.
+fn named_provider_failing_with_mock(
+    name: &str,
+    status: u16,
+) -> (Arc<dyn TrainStatusProvider>, Arc<MockTransport>) {
+    let mut mock = MockTransport::new();
+    mock.push(STATUS_PATH, status, "boom");
+    let mock = Arc::new(mock);
+    let provider: Arc<dyn TrainStatusProvider> = Arc::new(NamedProvider {
+        name: name.to_string(),
+        inner: Arc::new(create_paytm_provider(mock.clone())),
+    });
+    (provider, mock)
 }
 
 /// Build an app with the given providers and a QoS registry whose window is
@@ -547,4 +579,121 @@ async fn skips_a_provider_in_qos_cooldown_at_the_route_level() {
     let (status, _body) = send(&app, &uri_for("20260804")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(failing_mock.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn reports_the_serving_provider_on_the_auto_response() {
+    let (app, _mock) = app_serving(happy_raw());
+    let (status, body) = send(&app, &status_uri()).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["provider"], "paytm");
+}
+
+#[tokio::test]
+async fn pins_the_lookup_to_the_requested_gateway_and_reports_it() {
+    // A healthy Paytm upstream must be ignored when the user pins Goibibo.
+    let (paytm, _paytm_mock) = named_provider_failing_with_mock("paytm", 500);
+    let (goibibo, goibibo_mock) = named_provider_with_mock("goibibo", happy_raw());
+    let app = app_with_providers(vec![paytm, goibibo], 3);
+
+    let (status, body) = send(&app, &format!("{}&provider=goibibo", status_uri())).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["provider"], "goibibo");
+    assert_eq!(goibibo_mock.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn does_not_fail_over_when_the_pinned_provider_errors() {
+    let (paytm, paytm_mock) = named_provider_failing_with_mock("paytm", 500);
+    let (goibibo, goibibo_mock) = named_provider_with_mock("goibibo", happy_raw());
+    let app = app_with_providers(vec![paytm, goibibo], 3);
+
+    let (status, body) = send(&app, &format!("{}&provider=paytm", status_uri())).await;
+
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body, r#"{"error":"Could not reach train data provider"}"#);
+    assert_eq!(paytm_mock.requests().len(), 1);
+    assert_eq!(goibibo_mock.requests().len(), 0);
+}
+
+#[tokio::test]
+async fn returns_404_when_the_pinned_provider_reports_the_train_as_not_found() {
+    let (paytm, _mock) = named_provider_with_mock("paytm", not_found_raw());
+    let app = app_with_providers(vec![paytm], 2);
+
+    let (status, body) = send(&app, &format!("{}&provider=paytm", status_uri())).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body, r#"{"error":"Train not found or no data available"}"#);
+}
+
+#[tokio::test]
+async fn rejects_an_unknown_provider_name_without_touching_upstream() {
+    let (app, mock) = app_serving(happy_raw());
+    let (status, body) = send(&app, &format!("{}&provider=not-a-provider", status_uri())).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("Invalid enum value"));
+    assert!(body.contains("railradar"));
+    assert!(body.contains("received 'not-a-provider'"));
+    assert!(
+        mock.requests().is_empty(),
+        "enum validation must short-circuit before any upstream call"
+    );
+}
+
+#[tokio::test]
+async fn rejects_a_disabled_provider_such_as_railradar_without_a_key() {
+    let (app, mock) = app_serving(happy_raw());
+    let (status, body) = send(&app, &format!("{}&provider=railradar", status_uri())).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("provider must be one of"));
+    assert!(!body.contains("railradar"));
+    assert!(mock.requests().is_empty());
+}
+
+#[tokio::test]
+async fn rejects_repeated_provider_params_as_a_validation_error() {
+    let (app, mock) = app_serving(happy_raw());
+    let (status, body) = send(
+        &app,
+        &format!("{}&provider=paytm&provider=goibibo", status_uri()),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("expected string, received array"));
+    assert!(mock.requests().is_empty());
+}
+
+#[tokio::test]
+async fn caches_pinned_and_auto_lookups_separately() {
+    let (paytm, paytm_mock) = named_provider_with_mock("paytm", happy_raw());
+    let (goibibo, goibibo_mock) = named_provider_with_mock("goibibo", happy_raw());
+    let app = app_with_providers(vec![paytm, goibibo], 3);
+
+    let (status, body) = send(&app, &status_uri()).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["provider"], "paytm");
+
+    let (status, body) = send(&app, &format!("{}&provider=goibibo", status_uri())).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["provider"], "goibibo");
+
+    // The repeated auto lookup is served from the per-query cache.
+    let (status, body) = send(&app, &status_uri()).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["provider"], "paytm");
+
+    // One upstream call for the auto query and one for the pinned query.
+    assert_eq!(paytm_mock.requests().len(), 1);
+    assert_eq!(goibibo_mock.requests().len(), 1);
 }

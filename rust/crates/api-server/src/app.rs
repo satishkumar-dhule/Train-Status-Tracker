@@ -84,8 +84,9 @@ pub struct AppState {
 }
 
 /// Builds the fully-wired application router with the configured train-status
-/// providers (from `TRAIN_STATUS_PROVIDERS` / `RAILRADAR_API_KEY`) over the
-/// production reqwest transport. Testable without binding a port.
+/// providers (from `TRAIN_STATUS_PROVIDERS`, `RAILRADAR_API_KEY`,
+/// `INDIANRAILAPI_API_KEY`) over the production reqwest transport. Testable
+/// without binding a port.
 pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
     let transport: Arc<dyn tt_provider_http::HttpTransport> =
         Arc::new(tt_provider_http::ReqwestTransport::new());
@@ -93,6 +94,7 @@ pub fn build_app(config: Config, telemetry: Arc<Telemetry>) -> Router {
         transport.clone(),
         &config.providers_enabled(),
         config.railradar_api_key.as_deref(),
+        config.indianrailapi_api_key.as_deref(),
     );
     build_app_with_providers(
         config,

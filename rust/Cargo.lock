@@ -9,6 +9,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -138,6 +149,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
+name = "block-buffer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "block-padding"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8894febbff9f758034a5b8e12d87918f56dfc64a8e1fe757d65e29041538d93"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -148,6 +177,15 @@ name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+
+[[package]]
+name = "cbc"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
+dependencies = [
+ "cipher",
+]
 
 [[package]]
 name = "cc"
@@ -176,6 +214,16 @@ dependencies = [
  "num-traits",
  "wasm-bindgen",
  "windows-link",
+]
+
+[[package]]
+name = "cipher"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+dependencies = [
+ "crypto-common",
+ "inout",
 ]
 
 [[package]]
@@ -209,12 +257,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
+name = "digest"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
 ]
 
 [[package]]
@@ -348,6 +425,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -369,6 +456,12 @@ dependencies = [
  "r-efi",
  "wasip2",
 ]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "http"
@@ -602,6 +695,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "inout"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
+dependencies = [
+ "block-padding",
+ "generic-array",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -729,6 +832,16 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
 
 [[package]]
 name = "memchr"
@@ -1753,6 +1866,8 @@ dependencies = [
  "tt-provider-railyatri",
  "tt-provider-wimt",
  "tt-qos",
+ "tt-rate-limit",
+ "tt-runs",
  "tt-telemetry",
  "tt-trains-data",
  "url",
@@ -1814,16 +1929,39 @@ dependencies = [
  "tokio",
  "tracing",
  "tt-mapper",
+ "tt-provider-confirmtkt",
  "tt-provider-core",
  "tt-provider-easemytrip",
+ "tt-provider-erail",
+ "tt-provider-etrain",
  "tt-provider-goibibo",
  "tt-provider-http",
+ "tt-provider-indianrailapi",
+ "tt-provider-ntes",
  "tt-provider-paytm",
+ "tt-provider-railbeeps",
+ "tt-provider-railmitra",
  "tt-provider-railradar",
  "tt-provider-railyatri",
+ "tt-provider-redrail",
+ "tt-provider-runningstatus",
+ "tt-provider-trainspnrstatus",
  "tt-provider-wimt",
  "tt-qos",
  "tt-telemetry",
+]
+
+[[package]]
+name = "tt-provider-confirmtkt"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
 ]
 
 [[package]]
@@ -1839,6 +1977,34 @@ dependencies = [
 
 [[package]]
 name = "tt-provider-easemytrip"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-erail"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-etrain"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -1880,12 +2046,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "tt-provider-indianrailapi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-ntes"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "async-trait",
+ "base64",
+ "cbc",
+ "hex",
+ "md-5",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
 name = "tt-provider-paytm"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde_json",
  "thiserror",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-railbeeps"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-railmitra"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde_json",
  "tokio",
  "tt-mapper",
  "tt-provider-core",
@@ -1921,6 +2145,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "tt-provider-redrail"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-runningstatus"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
+name = "tt-provider-trainspnrstatus"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde_json",
+ "tokio",
+ "tt-mapper",
+ "tt-provider-core",
+ "tt-provider-http",
+ "url",
+]
+
+[[package]]
 name = "tt-provider-wimt"
 version = "0.1.0"
 dependencies = [
@@ -1938,6 +2202,7 @@ name = "tt-qos"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "serde",
 ]
 
 [[package]]
@@ -1948,6 +2213,7 @@ version = "0.1.0"
 name = "tt-runs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "futures-util",
  "serde",
  "serde_json",
@@ -1976,6 +2242,12 @@ dependencies = [
  "serde_json",
  "ureq",
 ]
+
+[[package]]
+name = "typenum"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "unicode-ident"
@@ -2047,6 +2319,12 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "walkdir"

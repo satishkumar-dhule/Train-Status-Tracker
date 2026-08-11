@@ -142,6 +142,9 @@ pub fn assemble_mapped_status(
         current_delay_minutes: current_station.and_then(|station| station.delay_minutes),
         status_message: strip_html(options.status_message.as_deref()),
         last_updated: options.last_updated.clone(),
+        // The assembler has no provider context; the orchestrator stamps the
+        // serving provider name onto the result before it is cached/served.
+        provider: String::new(),
         stations,
     }
 }

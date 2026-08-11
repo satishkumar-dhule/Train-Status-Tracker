@@ -89,6 +89,7 @@ pub struct TrainStatusResponse {
     pub current_delay_minutes: Option<i64>,
     pub status_message: Option<String>,
     pub last_updated: Option<String>,
+    pub provider: String,
     pub stations: Vec<StationStatus>,
 }
 

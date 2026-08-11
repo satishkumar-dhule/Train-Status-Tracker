@@ -1,0 +1,23 @@
+[package]
+name = "tt-provider-ntes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CRIS NTES (Indian Railways official) upstream adapter (encrypted JSON)"
+
+[dependencies]
+aes = "0.8.4"
+async-trait = "0.1.91"
+base64 = "0.22.1"
+cbc = { version = "0.1.2", features = ["alloc", "block-padding"] }
+hex = "0.4.3"
+md-5 = "0.10.6"
+serde_json = "1.0.151"
+tt-mapper = { version = "0.1.0", path = "../mapper" }
+tt-provider-core = { version = "0.1.0", path = "../provider-core" }
+tt-provider-http = { version = "0.1.0", path = "../provider-http" }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }
+tt-provider-http = { version = "0.1.0", path = "../provider-http", features = ["testkit"] }
+url = "2.5.8"

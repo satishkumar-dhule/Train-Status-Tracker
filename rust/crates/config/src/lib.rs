@@ -122,6 +122,8 @@ pub struct Config {
     pub train_status_providers: Vec<String>,
     /// `RAILRADAR_API_KEY` — `Some` enables the RailRadar provider.
     pub railradar_api_key: Option<String>,
+    /// `INDIANRAILAPI_API_KEY` — `Some` enables the indianrailapi provider.
+    pub indianrailapi_api_key: Option<String>,
     /// `TRAIN_DATA_URL` — optional upstream catalog override.
     pub train_data_url: Option<String>,
     /// `TRAIN_DATA_VERSION` — optional upstream catalog cache-buster (`?v=`).
@@ -185,6 +187,7 @@ impl Config {
                 env.get("TRAIN_STATUS_PROVIDERS").map(String::as_str),
             ),
             railradar_api_key: env::trimmed(env, "RAILRADAR_API_KEY").map(str::to_string),
+            indianrailapi_api_key: env::trimmed(env, "INDIANRAILAPI_API_KEY").map(str::to_string),
             train_data_url: env::trimmed(env, "TRAIN_DATA_URL").map(str::to_string),
             train_data_version: env::trimmed(env, "TRAIN_DATA_VERSION").map(str::to_string),
             train_catalog_ttl_ms: env::positive_u64(
@@ -281,12 +284,16 @@ impl Config {
     /// Provider names that are actually enabled, in priority order.
     ///
     /// Mirrors `buildStatusProviders` in `lib/providers/registry.ts`: unknown
-    /// and duplicate names were already dropped during parsing, and RailRadar
-    /// is only enabled when `RAILRADAR_API_KEY` is present.
+    /// and duplicate names were already dropped during parsing, and RailRadar /
+    /// IndianRailAPI are only enabled when their API key is present.
     pub fn providers_enabled(&self) -> Vec<String> {
         self.train_status_providers
             .iter()
-            .filter(|name| name.as_str() != "railradar" || self.railradar_api_key.is_some())
+            .filter(|name| match name.as_str() {
+                "railradar" => self.railradar_api_key.is_some(),
+                "indianrailapi" => self.indianrailapi_api_key.is_some(),
+                _ => true,
+            })
             .cloned()
             .collect()
     }
@@ -321,6 +328,7 @@ mod tests {
         assert_eq!(cfg.cors_origin, None);
         assert_eq!(cfg.train_status_providers, default_provider_order());
         assert_eq!(cfg.railradar_api_key, None);
+        assert_eq!(cfg.indianrailapi_api_key, None);
         assert_eq!(cfg.train_data_url, None);
         assert_eq!(cfg.train_data_version, None);
         assert_eq!(cfg.train_catalog_ttl_ms, 7_200_000);
@@ -367,6 +375,7 @@ mod tests {
             ("CORS_ORIGIN", "http://a.example, http://b.example"),
             ("TRAIN_STATUS_PROVIDERS", "  Paytm , RailRadar,paytm, bogus"),
             ("RAILRADAR_API_KEY", "sekrit"),
+            ("INDIANRAILAPI_API_KEY", "indi-sekrit"),
             ("TRAIN_DATA_URL", "https://example.com/trains.json"),
             ("TRAIN_DATA_VERSION", "2026-08-10"),
             ("TRAIN_CATALOG_TTL_MS", "1800000"),
@@ -406,6 +415,7 @@ mod tests {
         assert_eq!(cfg.train_status_providers, vec!["paytm", "railradar"]);
         assert_eq!(cfg.providers_enabled(), vec!["paytm", "railradar"]);
         assert_eq!(cfg.railradar_api_key.as_deref(), Some("sekrit"));
+        assert_eq!(cfg.indianrailapi_api_key.as_deref(), Some("indi-sekrit"));
         assert_eq!(
             cfg.train_data_url.as_deref(),
             Some("https://example.com/trains.json")
@@ -516,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn providers_enabled_drops_railradar_without_key() {
+    fn providers_enabled_drops_key_gated_providers_without_key() {
         let cfg = Config::parse(&BTreeMap::new());
         assert_eq!(
             cfg.providers_enabled(),
@@ -525,15 +535,46 @@ mod tests {
                 "goibibo",
                 "railyatri",
                 "whereismytrain",
-                "easemytrip"
+                "easemytrip",
+                "confirmtkt",
+                "redrail",
+                "ntes",
+                "erail",
+                "etrain",
+                "railmitra",
+                "runningstatus",
+                "trainspnrstatus",
+                "railbeeps"
             ]
         );
     }
 
     #[test]
-    fn providers_enabled_keeps_railradar_with_key() {
-        let cfg = Config::parse(&env(&[("RAILRADAR_API_KEY", "k-123")]));
+    fn providers_enabled_keeps_key_gated_providers_with_keys() {
+        let cfg = Config::parse(&env(&[
+            ("RAILRADAR_API_KEY", "k-123"),
+            ("INDIANRAILAPI_API_KEY", "k-456"),
+        ]));
         assert_eq!(cfg.providers_enabled(), default_provider_order());
+    }
+
+    #[test]
+    fn providers_enabled_gates_indianrailapi_independently() {
+        let with_railradar = Config::parse(&env(&[
+            ("TRAIN_STATUS_PROVIDERS", "indianrailapi,paytm"),
+            ("RAILRADAR_API_KEY", "k-123"),
+        ]));
+        assert!(!with_railradar
+            .providers_enabled()
+            .contains(&"indianrailapi".to_string()));
+
+        let with_indianrailapi = Config::parse(&env(&[
+            ("TRAIN_STATUS_PROVIDERS", "indianrailapi,paytm"),
+            ("INDIANRAILAPI_API_KEY", "k-456"),
+        ]));
+        assert!(with_indianrailapi
+            .providers_enabled()
+            .contains(&"indianrailapi".to_string()));
     }
 
     #[test]
