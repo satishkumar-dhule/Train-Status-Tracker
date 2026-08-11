@@ -41,5 +41,7 @@ export interface TrainStatusResponse {
      * @nullable
      */
   last_updated?: string | null;
+  /** The data source ("gateway") that served this status (e.g. paytm, goibibo) */
+  provider: string;
   stations: StationStatus[];
 }

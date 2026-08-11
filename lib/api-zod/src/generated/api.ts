@@ -74,7 +74,7 @@ export const GetTrainRunsResponse = zod.object({
 
 
 /**
- * Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to Paytm trains data.
+ * Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to multiple train status data sources (Paytm, Goibibo, RailYatri, WhereIsMyTrain, EaseMyTrip, RailRadar) with automatic failover across providers.
  * @summary Get train running status
  */
 export const getTrainStatusQueryTrainNumberRegExp = new RegExp('^\\d{5}$');
@@ -83,7 +83,8 @@ export const getTrainStatusQueryDepartureDateRegExp = new RegExp('^\\d{8}$');
 
 export const GetTrainStatusQueryParams = zod.object({
   "train_number": zod.coerce.string().regex(getTrainStatusQueryTrainNumberRegExp).describe('Train number (e.g. 22943)'),
-  "departure_date": zod.coerce.string().regex(getTrainStatusQueryDepartureDateRegExp).describe('Departure date in YYYYMMDD format (e.g. 20260801)')
+  "departure_date": zod.coerce.string().regex(getTrainStatusQueryDepartureDateRegExp).describe('Departure date in YYYYMMDD format (e.g. 20260801)'),
+  "provider": zod.enum(['paytm', 'goibibo', 'railyatri', 'whereismytrain', 'easemytrip', 'railradar']).optional().describe('Pin the lookup to a single data source (\"gateway\") instead of the default failover chain. When omitted the API consults providers in priority order until one succeeds; the `provider` field of the response reports which source actually served the request.')
 })
 
 export const GetTrainStatusResponse = zod.object({
@@ -99,6 +100,7 @@ export const GetTrainStatusResponse = zod.object({
   "current_delay_minutes": zod.number().nullish().describe('Current delay in minutes'),
   "status_message": zod.string().nullish().describe('Human-readable status summary from data provider'),
   "last_updated": zod.string().nullish().describe('ISO 8601 timestamp of when the status was last refreshed'),
+  "provider": zod.string().describe('The data source (\"gateway\") that served this status (e.g. paytm, goibibo)'),
   "stations": zod.array(zod.object({
   "station_code": zod.string(),
   "station_name": zod.string(),

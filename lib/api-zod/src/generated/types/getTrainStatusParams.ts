@@ -5,6 +5,7 @@
  * Train status tracker API — proxies to multiple train status data sources (Paytm, Goibibo, RailYatri, WhereIsMyTrain, EaseMyTrip, RailRadar) with automatic failover across providers.
  * OpenAPI spec version: 0.1.0
  */
+import type { GetTrainStatusProvider } from './getTrainStatusProvider';
 
 export type GetTrainStatusParams = {
 /**
@@ -17,4 +18,8 @@ train_number: string;
  * @pattern ^\d{8}$
  */
 departure_date: string;
+/**
+ * Pin the lookup to a single data source ("gateway") instead of the default failover chain. When omitted the API consults providers in priority order until one succeeds; the `provider` field of the response reports which source actually served the request.
+ */
+provider?: GetTrainStatusProvider;
 };

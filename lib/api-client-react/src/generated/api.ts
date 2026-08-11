@@ -396,7 +396,7 @@ export const getGetTrainStatusUrl = (params: GetTrainStatusParams,) => {
 }
 
 /**
- * Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to Paytm trains data.
+ * Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to multiple train status data sources (Paytm, Goibibo, RailYatri, WhereIsMyTrain, EaseMyTrip, RailRadar) with automatic failover across providers.
  * @summary Get train running status
  */
 export const getTrainStatus = async (params: GetTrainStatusParams, options?: Parameters<typeof customFetch>[1]): Promise<TrainStatusResponse> => {

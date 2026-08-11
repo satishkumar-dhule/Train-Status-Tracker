@@ -9,6 +9,7 @@
 export * from './errorResponse';
 export * from './getTrainRunsParams';
 export * from './getTrainStatusParams';
+export * from './getTrainStatusProvider';
 export * from './healthStatus';
 export * from './healthStatusRedis';
 export * from './searchTrainsParams';

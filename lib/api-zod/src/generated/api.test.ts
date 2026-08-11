@@ -32,6 +32,38 @@ describe("GetTrainStatusQueryParams", () => {
     });
     expect(parsed.success).toBe(false);
   });
+
+  it("accepts a known provider pin", () => {
+    const parsed = GetTrainStatusQueryParams.safeParse({
+      train_number: "22943",
+      departure_date: "20260802",
+      provider: "goibibo",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.provider).toBe("goibibo");
+    }
+  });
+
+  it("treats provider as optional", () => {
+    const parsed = GetTrainStatusQueryParams.safeParse({
+      train_number: "22943",
+      departure_date: "20260802",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.provider).toBeUndefined();
+    }
+  });
+
+  it("rejects an unknown provider name", () => {
+    const parsed = GetTrainStatusQueryParams.safeParse({
+      train_number: "22943",
+      departure_date: "20260802",
+      provider: "not-a-provider",
+    });
+    expect(parsed.success).toBe(false);
+  });
 });
 
 describe("GetTrainRunsQueryParams", () => {

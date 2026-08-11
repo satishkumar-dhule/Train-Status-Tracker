@@ -151,6 +151,8 @@ export interface TrainStatusResponse {
      * @nullable
      */
   last_updated?: string | null;
+  /** The data source ("gateway") that served this status (e.g. paytm, goibibo) */
+  provider: string;
   stations: StationStatus[];
 }
 
@@ -187,5 +189,21 @@ train_number: string;
  * @pattern ^\d{8}$
  */
 departure_date: string;
+/**
+ * Pin the lookup to a single data source ("gateway") instead of the default failover chain. When omitted the API consults providers in priority order until one succeeds; the `provider` field of the response reports which source actually served the request.
+ */
+provider?: GetTrainStatusProvider;
 };
+
+export type GetTrainStatusProvider = typeof GetTrainStatusProvider[keyof typeof GetTrainStatusProvider];
+
+
+export const GetTrainStatusProvider = {
+  paytm: 'paytm',
+  goibibo: 'goibibo',
+  railyatri: 'railyatri',
+  whereismytrain: 'whereismytrain',
+  easemytrip: 'easemytrip',
+  railradar: 'railradar',
+} as const;
 

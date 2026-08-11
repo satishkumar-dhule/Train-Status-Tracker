@@ -119,7 +119,7 @@ paths:
       operationId: getTrainStatus
       tags: [trains]
       summary: Get train running status
-      description: Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to Paytm trains data.
+      description: Returns live running status for a train on a given departure date, including station-by-station schedule, delay, and current position. Proxies to multiple train status data sources (Paytm, Goibibo, RailYatri, WhereIsMyTrain, EaseMyTrip, RailRadar) with automatic failover across providers.
       parameters:
         - name: train_number
           in: query
@@ -135,6 +135,23 @@ paths:
             type: string
             pattern: '^\d{8}$'
           description: Departure date in YYYYMMDD format (e.g. 20260801)
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - paytm
+              - goibibo
+              - railyatri
+              - whereismytrain
+              - easemytrip
+              - railradar
+          description: >-
+            Pin the lookup to a single data source ("gateway") instead of the
+            default failover chain. When omitted the API consults providers in
+            priority order until one succeeds; the `provider` field of the
+            response reports which source actually served the request.
       responses:
         "200":
           description: Train status response
@@ -328,6 +345,9 @@ components:
         last_updated:
           type: ["string", "null"]
           description: ISO 8601 timestamp of when the status was last refreshed
+        provider:
+          type: string
+          description: The data source ("gateway") that served this status (e.g. paytm, goibibo)
         stations:
           type: array
           items:
@@ -340,4 +360,5 @@ components:
         - source_station_name
         - destination_station_code
         - destination_station_name
+        - provider
         - stations
